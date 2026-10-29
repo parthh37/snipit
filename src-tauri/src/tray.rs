@@ -1,5 +1,5 @@
 use tauri::{
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -10,7 +10,11 @@ const MENU_OPEN: &str = "open";
 const MENU_REGION: &str = "capture-region";
 const MENU_FULLSCREEN: &str = "capture-fullscreen";
 const MENU_CLIPBOARD: &str = "annotate-clipboard";
+const MENU_CHECK_UPDATES: &str = "check-updates";
 const MENU_QUIT: &str = "quit";
+
+/// Event the main window listens for to run an update check (see `src/useUpdater.ts`).
+const EVENT_CHECK_UPDATES: &str = "check-for-updates";
 
 /// Creates the system tray icon. Left click opens the main window; right click shows the menu.
 pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -30,6 +34,13 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Snipit", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        MENU_CHECK_UPDATES,
+        "Check for updates…",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit Snipit", true, None::<&str>)?;
@@ -41,6 +52,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &clipboard,
             &separator,
             &open,
+            &check_updates,
             &separator2,
             &quit,
         ],
@@ -55,6 +67,10 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             MENU_REGION => capture::start(app, CaptureMode::Region),
             MENU_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen),
             MENU_CLIPBOARD => capture::annotate_clipboard(app),
+            MENU_CHECK_UPDATES => {
+                show_main_window(app);
+                let _ = app.emit_to("main", EVENT_CHECK_UPDATES, ());
+            }
             MENU_QUIT => app.exit(0),
             _ => {}
         })

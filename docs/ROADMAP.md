@@ -9,6 +9,9 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 - [x] Lint/format (ESLint, Prettier, rustfmt, clippy)
 - [x] GitHub Actions CI: lint, test, build Windows installer
 - [x] System tray icon with Quit
+- [x] Release workflow (tag or "Run workflow" → GitHub release)
+- [x] Auto-update (signed, from GitHub Releases)
+- [x] Per-user installer with WebView2 bootstrapper
 
 ## M1 — Capture MVP
 
@@ -58,8 +61,8 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 
 ## M6 — Polish & release
 
-- [ ] Installer + code signing
-- [ ] Auto-update
+- [ ] Authenticode code signing (SmartScreen)
+- [ ] winget / Scoop packages
 - [ ] Share plugins (custom HTTP upload, S3, Imgur)
 - [ ] Webcam overlay, click visualisation
 - [ ] Combine images / step-guide templates

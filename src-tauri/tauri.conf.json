@@ -42,6 +42,26 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzRTU1QzdFRTE1OERCRUEKUldUcTIxamhmbHpsTTlGZmNDa0l5OXZ4aElKRGJDREo3NjkvV041eGgzUHd5cjFYcDhDdVdodVEK",
+      "endpoints": [
+        "https://github.com/parthh37/snipit/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
