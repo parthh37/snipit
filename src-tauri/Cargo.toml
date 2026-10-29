@@ -17,8 +17,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+arboard = "3.7.0"
+chrono = "0.4.45"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-opener = "2.7.2"
 tauri-plugin-single-instance = "2"
+trash = "5.2.9"
+xcap = "0.9.8"
 
 # See https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
@@ -27,3 +36,15 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Capture, PNG encoding and cropping are noticeably slow unoptimised, even in dev builds.
+[profile.dev.package.xcap]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3

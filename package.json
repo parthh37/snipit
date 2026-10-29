@@ -20,8 +20,10 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "konva": "^10.9.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-konva": "^19.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

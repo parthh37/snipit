@@ -12,27 +12,32 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 
 ## M1 — Capture MVP
 
-- [ ] Global hotkey (`PrintScreen` default)
-- [ ] Freeze-frame region overlay across all monitors (mixed DPI)
-- [ ] Magnifier loupe, size readout, Esc to cancel
+- [x] Global hotkeys, rebindable in Settings (`PrintScreen` region, `Shift+PrintScreen` full screen)
+- [x] Freeze-frame region overlay on the monitor under the cursor
+- [ ] Region overlay spanning all monitors at once (mixed DPI)
+- [x] Magnifier loupe, size readout, Esc to cancel
 - [ ] Window capture (hover highlight)
-- [ ] Full screen / single-monitor capture
-- [ ] Copy to clipboard + auto-save PNG to library folder
+- [x] Full screen / single-monitor capture
+- [x] Copy to clipboard + auto-save PNG to library folder (`Pictures\Snipit`)
 
 ## M2 — Editor MVP
 
-- [ ] Editor window with zoom/pan, undo/redo
-- [ ] Tools: arrow, rectangle, ellipse, line, text, callout, step numbers, highlighter
-- [ ] Blur / pixelate
+- [x] Editor with undo/redo, paste images from the clipboard
+- [ ] Editor zoom/pan
+- [x] Tools: arrow, rectangle, ellipse, line, pen, text, text bubble (callout), step numbers, highlighter
+- [x] Pixelate
+- [ ] Blur
 - [ ] Crop & resize
 - [ ] Recent captures tray
 - [ ] `.snip` project file (non-destructive) + export PNG/JPG/WebP/PDF
 
 ## M3 — Workflow
 
-- [ ] Library window (date grouping, search, tags)
+- [x] Gallery of saved snips (open, copy, show in folder, delete)
+- [ ] Gallery date grouping, search, tags
 - [ ] Capture presets (capture type → effects → output)
-- [ ] Settings: hotkeys, output folder, filename template, theme, autostart
+- [x] Settings: hotkeys, after-capture action, launch at startup
+- [ ] Settings: output folder, filename template, theme
 - [ ] Delayed capture, cursor capture, repeat last capture
 - [ ] Quick styles for tools
 - [ ] Effects: border, shadow, torn edge; magnify, spotlight, pen

@@ -12,6 +12,24 @@
 - **Organise** — auto-saved library with search and tags, non-destructive `.snip` project files
 - **Share** — clipboard, PNG/JPG/WebP/PDF export, upload integrations
 
+## Using Snipit
+
+Snipit starts with Windows (in release builds) and waits in the system tray.
+
+| Shortcut                    | Action                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| `PrintScreen`               | Capture a region: drag, then **C** copy · **E** annotate · **Enter** default · **Esc** cancel |
+| `Shift+PrintScreen`         | Capture the monitor under the cursor                                                          |
+| `Ctrl+V` in the main window | Annotate the image on the clipboard                                                           |
+
+All shortcuts can be changed in **Settings**. If another app (Snagit, ShareX, OneDrive…)
+already owns Print Screen, Settings shows the conflict so you can pick another key.
+
+Every snip is saved to `Pictures\Snipit` and listed in the **Gallery**. The editor has
+arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step number and
+pixelate tools (single-letter shortcuts shown in tooltips), undo/redo, and pastes images
+from the clipboard. **Copy** puts the annotated image on the clipboard and saves it.
+
 ## Tech stack
 
 [Tauri 2](https://tauri.app) (Rust core) + React + TypeScript + Konva.js. Windows first,
