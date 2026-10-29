@@ -4,6 +4,17 @@
 
 > Status: 🚧 planning / early development. See the [roadmap](docs/ROADMAP.md).
 
+## Install
+
+Download `Snipit_x.y.z_x64-setup.exe` from the
+[latest release](https://github.com/parthh37/snipit/releases/latest) and run it. It installs
+for your user only (no admin prompt), sets up WebView2 if it's missing and adds a Start menu
+shortcut. Snipit updates itself from then on. An `.msi` is also attached for
+managed/IT deployments.
+
+> Windows may show "Windows protected your PC" because the installer isn't code-signed
+> yet — click **More info → Run anyway**.
+
 ## Planned features
 
 - **Capture** — region, window, full screen, delayed, scrolling and text (OCR) capture with a global hotkey
@@ -28,6 +39,7 @@ npm install
 npm run tauri dev      # run the app with hot reload
 npm run tauri build    # build installers into src-tauri/target/release/bundle
 npm run check          # typecheck, lint and format check (TS + Rust)
+npm run release -- 0.2.0  # bump version, commit and tag a release
 ```
 
 Snipit lives in the system tray: closing the window hides it, and **Quit** in the tray
@@ -37,6 +49,7 @@ menu exits.
 
 - [Product & technical analysis](docs/ANALYSIS.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Releasing & auto-update](docs/RELEASING.md)
 
 ## License
 

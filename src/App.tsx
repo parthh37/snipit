@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "../assets/icon.svg";
+import UpdateBanner from "./UpdateBanner";
+import { useUpdater } from "./useUpdater";
 
 const captureModes = [
   { name: "Region", hint: "Drag to select any area" },
@@ -10,6 +12,7 @@ const captureModes = [
 
 function App() {
   const [version, setVersion] = useState<string>();
+  const updater = useUpdater();
 
   useEffect(() => {
     getVersion()
@@ -28,6 +31,12 @@ function App() {
           </p>
         </div>
       </header>
+
+      <UpdateBanner
+        state={updater.state}
+        onInstall={updater.install}
+        onDismiss={updater.dismiss}
+      />
 
       <section className="flex-1 overflow-auto px-6 py-8">
         <h2 className="mb-4 text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
@@ -54,8 +63,18 @@ function App() {
         </p>
       </section>
 
-      <footer className="border-t border-zinc-200 px-6 py-3 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-        {version ? `v${version}` : " "}
+      <footer className="flex items-center justify-between border-t border-zinc-200 px-6 py-3 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
+        <span>{version ? `v${version}` : " "}</span>
+        <button
+          type="button"
+          onClick={updater.checkForUpdates}
+          disabled={updater.state.status === "checking"}
+          className="hover:text-zinc-600 disabled:opacity-60 dark:hover:text-zinc-300"
+        >
+          {updater.state.status === "checking"
+            ? "Checking for updates…"
+            : "Check for updates"}
+        </button>
       </footer>
     </main>
   );
