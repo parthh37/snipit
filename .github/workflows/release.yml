@@ -1,0 +1,126 @@
+name: Release
+
+# Two ways to cut a release:
+#   - locally: `npm run release -- 0.2.0` then `git push --follow-tags`
+#   - on GitHub: Actions → Release → Run workflow, enter 0.2.0 (bumps, commits and tags main)
+# Either way the installers are built, signed for the updater and published as a GitHub
+# release. Installed copies pick it up through latest.json (see plugins.updater in
+# src-tauri/tauri.conf.json). Tags with a suffix (v0.2.0-beta.1) become pre-releases, which
+# the updater ignores.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Version and tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Bump version, commit and tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Run the release workflow from main"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/release.mjs "$VERSION"
+          git push --atomic origin HEAD:main "v${VERSION#v}"
+
+      - name: Resolve tag
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="v${VERSION#v}"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          node scripts/release.mjs --check "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: Create draft release
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.create.outputs.id }}
+    steps:
+      - id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$TAG" \
+            -f name="Snipit $TAG" \
+            -F draft=true \
+            -F prerelease="$prerelease" \
+            -F generate_release_notes=true \
+            --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build Windows installers
+    needs: [prepare, create-release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.id }}
+          # Produces the .sig files and latest.json the in-app updater reads.
+          args: --config src-tauri/tauri.release.conf.json
+          # Update through the NSIS installer (per-user, no admin prompt), not the MSI.
+          updaterJsonPreferNsis: true
+
+  publish:
+    name: Publish release
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.create-release.outputs.id }}
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false
