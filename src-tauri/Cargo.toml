@@ -1,0 +1,29 @@
+[package]
+name = "snipit"
+version = "0.1.0"
+description = "Screen capture, recording and annotation tool"
+authors = ["parthh37"]
+license = "MIT"
+repository = "https://github.com/parthh37/snipit"
+edition = "2024"
+
+[lib]
+# The `_lib` suffix avoids a name clash between the lib and bin targets on Windows,
+# see https://github.com/rust-lang/cargo/issues/8519
+name = "snipit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+
+# See https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

@@ -17,6 +17,22 @@
 [Tauri 2](https://tauri.app) (Rust core) + React + TypeScript + Konva.js. Windows first,
 macOS/Linux later.
 
+## Development
+
+Prerequisites: [Node.js](https://nodejs.org) 22+, [Rust](https://rustup.rs) (stable, MSVC
+toolchain on Windows) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/)
+for your OS.
+
+```bash
+npm install
+npm run tauri dev      # run the app with hot reload
+npm run tauri build    # build installers into src-tauri/target/release/bundle
+npm run check          # typecheck, lint and format check (TS + Rust)
+```
+
+Snipit lives in the system tray: closing the window hides it, and **Quit** in the tray
+menu exits.
+
 ## Docs
 
 - [Product & technical analysis](docs/ANALYSIS.md)
