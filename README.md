@@ -45,6 +45,21 @@ npm run release -- 0.2.0  # bump version, commit and tag a release
 Snipit lives in the system tray: closing the window hides it, and **Quit** in the tray
 menu exits.
 
+## Capturing
+
+| Action                        | How                                                         |
+| ----------------------------- | ----------------------------------------------------------- |
+| Region or window              | `PrtSc`, then drag a region or click a window               |
+| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open |
+| Cancel                        | `Esc` or right-click                                        |
+| From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
+
+Every capture is copied to the clipboard and saved as a PNG in `Pictures\Snipit`.
+
+If `PrtSc` doesn't work, either Windows is using it for Snipping Tool (turn off **Settings →
+Accessibility → Keyboard → Use the Print screen key to open screen capture**) or another
+screenshot tool has claimed it. Snipit shows a notice in its window when this happens.
+
 ## Docs
 
 - [Product & technical analysis](docs/ANALYSIS.md)

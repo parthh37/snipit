@@ -17,11 +17,29 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+arboard = "3.7.0"
+chrono = "0.4.45"
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-opener = "2.7.2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+xcap = "0.9.8"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_System_Registry",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+# Image capture and encoding are painfully slow unoptimized, so optimize dependencies in dev.
+[profile.dev.package."*"]
+opt-level = 2
 
 # See https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

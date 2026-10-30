@@ -15,12 +15,13 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 
 ## M1 — Capture MVP
 
-- [ ] Global hotkey (`PrintScreen` default)
-- [ ] Freeze-frame region overlay across all monitors (mixed DPI)
-- [ ] Magnifier loupe, size readout, Esc to cancel
-- [ ] Window capture (hover highlight)
-- [ ] Full screen / single-monitor capture
-- [ ] Copy to clipboard + auto-save PNG to library folder
+- [x] Global hotkey (`PrintScreen` default)
+- [x] Freeze-frame region overlay across all monitors (mixed DPI) — _not yet tested on a multi-monitor setup_
+- [x] Magnifier loupe, size readout, Esc to cancel
+- [x] Window capture (hover highlight) — top-level windows; child controls come later
+- [x] Full screen / single-monitor capture
+- [x] Copy to clipboard + auto-save PNG to library folder
+- [x] `--capture` / `--capture-fullscreen` command-line flags
 
 ## M2 — Editor MVP
 
