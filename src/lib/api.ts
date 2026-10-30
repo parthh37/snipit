@@ -14,6 +14,8 @@ export interface SettingsView {
   settings: Settings;
   shortcutErrors: Partial<Record<ShortcutAction, string>>;
   autostart: boolean;
+  /** Windows' "Use the Print screen key to open screen capture" is on. */
+  printscreenReservedByWindows: boolean;
 }
 
 export interface Snip {
@@ -23,23 +25,7 @@ export interface Snip {
   size: number;
 }
 
-export interface Region {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export const api = {
-  startCapture: (mode: "region" | "fullscreen") =>
-    invoke<void>("start_capture", { mode }),
-  annotateClipboard: () => invoke<void>("annotate_clipboard_cmd"),
-
-  getFrozen: () => invoke<ArrayBuffer>("get_frozen"),
-  overlayReady: () => invoke<void>("overlay_ready"),
-  finishRegion: (region: Region | null, action: AfterCapture | null) =>
-    invoke<void>("finish_region", { region, action }),
-
   copyPng: (png: Uint8Array) => invoke<void>("copy_png", png),
   /** PNG bytes of the clipboard image; empty when it holds no image. */
   pasteImage: () => invoke<ArrayBuffer>("paste_image"),
@@ -64,6 +50,7 @@ export const api = {
     invoke<Settings>("set_after_capture", { mode }),
   setAutostart: (enabled: boolean) =>
     invoke<SettingsView>("set_autostart", { enabled }),
+  openKeyboardSettings: () => invoke<void>("open_keyboard_settings"),
 };
 
 /** URL for showing a gallery file in an `<img>`; `version` busts the cache after edits. */

@@ -27,19 +27,26 @@ managed/IT deployments.
 
 Snipit starts with Windows (in release builds) and waits in the system tray.
 
-| Shortcut                    | Action                                                                                        |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
-| `PrintScreen`               | Capture a region: drag, then **C** copy · **E** annotate · **Enter** default · **Esc** cancel |
-| `Shift+PrintScreen`         | Capture the monitor under the cursor                                                          |
-| `Ctrl+V` in the main window | Annotate the image on the clipboard                                                           |
+| Action                        | How                                                         |
+| ----------------------------- | ----------------------------------------------------------- |
+| Region or window              | `PrtSc`, then drag a region or click a window               |
+| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open |
+| Cancel                        | `Esc` or right-click                                        |
+| Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu               |
+| From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
 
-All shortcuts can be changed in **Settings**. If another app (Snagit, ShareX, OneDrive…)
-already owns Print Screen, Settings shows the conflict so you can pick another key.
+All shortcuts can be changed in **Settings**. Every capture is saved as a PNG in
+`Pictures\Snipit` and listed in the **Gallery**; Settings picks whether a new capture then
+opens in the editor (the default) or goes straight to the clipboard.
 
-Every snip is saved to `Pictures\Snipit` and listed in the **Gallery**. The editor has
-arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step number and
-pixelate tools (single-letter shortcuts shown in tooltips), undo/redo, and pastes images
-from the clipboard. **Copy** puts the annotated image on the clipboard and saves it.
+If `PrtSc` doesn't work, either Windows is using it for Snipping Tool (turn off **Settings →
+Accessibility → Keyboard → Use the Print screen key to open screen capture**) or another
+screenshot tool (Snagit, ShareX, OneDrive…) has claimed it. Snipit shows a notice in its
+window when this happens, and you can pick another key in Settings.
+
+The editor has arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step
+number and pixelate tools (single-letter shortcuts shown in tooltips), undo/redo, and pastes
+images from the clipboard. **Copy** puts the annotated image on the clipboard and saves it.
 
 ## Tech stack
 

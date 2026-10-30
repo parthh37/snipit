@@ -5,6 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use chrono::{DateTime, Local};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, ipc::Response};
 use xcap::image::{ImageFormat, RgbaImage};
@@ -28,17 +29,25 @@ pub fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, String> {
     Ok(png)
 }
 
-/// Saves a new snip and returns its path.
-pub fn save_new<R: Runtime>(app: &AppHandle<R>, png: &[u8]) -> Result<PathBuf, String> {
-    let dir = dir(app)?;
-    let stamp = chrono::Local::now().format("Snip %Y-%m-%d %H-%M-%S");
-    let mut path = dir.join(format!("{stamp}.png"));
+fn file_stem(now: DateTime<Local>) -> String {
+    now.format("Snipit_%Y-%m-%d_%H-%M-%S").to_string()
+}
+
+/// `dir/stem.png`, or `dir/stem_2.png`, `_3`... if that name is taken.
+fn unique_path(dir: &Path, stem: &str) -> PathBuf {
+    let mut path = dir.join(format!("{stem}.png"));
     let mut n = 2;
     while path.exists() {
-        path = dir.join(format!("{stamp} ({n}).png"));
+        path = dir.join(format!("{stem}_{n}.png"));
         n += 1;
     }
-    fs::write(&path, png).map_err(|e| e.to_string())?;
+    path
+}
+
+/// Saves a new snip and returns its path.
+pub fn save_new<R: Runtime>(app: &AppHandle<R>, png: &[u8]) -> Result<PathBuf, String> {
+    let path = unique_path(&dir(app)?, &file_stem(Local::now()));
+    fs::write(&path, png).map_err(|e| format!("Couldn't save {}: {e}", path.display()))?;
     Ok(path)
 }
 
@@ -159,7 +168,26 @@ fn percent_decode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::percent_decode;
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn file_stem_is_sortable_timestamp() {
+        let t = Local.with_ymd_and_hms(2026, 3, 7, 9, 5, 2).unwrap();
+        assert_eq!(file_stem(t), "Snipit_2026-03-07_09-05-02");
+    }
+
+    #[test]
+    fn unique_path_appends_counter() {
+        let dir = std::env::temp_dir().join(format!("snipit-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let first = unique_path(&dir, "shot");
+        assert_eq!(first.file_name().unwrap(), "shot.png");
+        fs::write(&first, b"").unwrap();
+        let second = unique_path(&dir, "shot");
+        assert_eq!(second.file_name().unwrap(), "shot_2.png");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn decodes_encode_uri_component() {

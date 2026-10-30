@@ -6,29 +6,35 @@ use tauri::{
 
 use crate::capture::{self, CaptureMode};
 
+const MENU_CAPTURE: &str = "capture";
+const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
+const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
 const MENU_OPEN: &str = "open";
-const MENU_REGION: &str = "capture-region";
-const MENU_FULLSCREEN: &str = "capture-fullscreen";
-const MENU_CLIPBOARD: &str = "annotate-clipboard";
 const MENU_CHECK_UPDATES: &str = "check-updates";
 const MENU_QUIT: &str = "quit";
 
-/// Event the main window listens for to run an update check (see `src/useUpdater.ts`).
+/// Event the main window listens for to run an update check (see `src/windows/main/useUpdater.ts`).
 const EVENT_CHECK_UPDATES: &str = "check-for-updates";
 
 /// Creates the system tray icon. Left click opens the main window; right click shows the menu.
-pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let region = MenuItem::with_id(app, MENU_REGION, "Capture region", true, None::<&str>)?;
-    let fullscreen = MenuItem::with_id(
+pub fn init(app: &AppHandle) -> tauri::Result<()> {
+    let capture = MenuItem::with_id(
         app,
-        MENU_FULLSCREEN,
+        MENU_CAPTURE,
+        "Capture region or window",
+        true,
+        None::<&str>,
+    )?;
+    let capture_fullscreen = MenuItem::with_id(
+        app,
+        MENU_CAPTURE_FULLSCREEN,
         "Capture full screen",
         true,
         None::<&str>,
     )?;
-    let clipboard = MenuItem::with_id(
+    let annotate_clipboard = MenuItem::with_id(
         app,
-        MENU_CLIPBOARD,
+        MENU_ANNOTATE_CLIPBOARD,
         "Annotate clipboard image",
         true,
         None::<&str>,
@@ -41,19 +47,17 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let separator2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit Snipit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
-            &region,
-            &fullscreen,
-            &clipboard,
-            &separator,
+            &capture,
+            &capture_fullscreen,
+            &annotate_clipboard,
+            &PredefinedMenuItem::separator(app)?,
             &open,
             &check_updates,
-            &separator2,
+            &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
     )?;
@@ -63,10 +67,10 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
+            MENU_CAPTURE => capture::start(app, CaptureMode::Interactive, true),
+            MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
+            MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
             MENU_OPEN => show_main_window(app),
-            MENU_REGION => capture::start(app, CaptureMode::Region),
-            MENU_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen),
-            MENU_CLIPBOARD => capture::annotate_clipboard(app),
             MENU_CHECK_UPDATES => {
                 show_main_window(app);
                 let _ = app.emit_to("main", EVENT_CHECK_UPDATES, ());

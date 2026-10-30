@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Local agent worktrees live here; don't scan them for class names. */
+@source not "../.claude";
 
 @theme {
   --color-brand-500: #6c6cff;
@@ -19,11 +21,6 @@ body,
 
 body {
   @apply bg-zinc-50 text-zinc-900 antialiased select-none dark:bg-zinc-950 dark:text-zinc-100;
-}
-
-/* The capture overlay draws the frozen screenshot edge to edge. */
-html.overlay body {
-  @apply bg-black;
 }
 
 .checkerboard {

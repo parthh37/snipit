@@ -13,7 +13,7 @@ import {
 } from "./shortcutFormat";
 
 const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
-  captureRegion: "Capture region",
+  captureRegion: "Capture region or window",
   captureFullscreen: "Capture full screen",
   annotateClipboard: "Annotate clipboard image",
 };
@@ -66,7 +66,7 @@ export default function Settings({ view, onChange, notify }: Props) {
 
       <Section
         title="After capture"
-        hint="Used for full-screen captures and Enter in the region picker."
+        hint="What happens to every new capture. It is always saved to the gallery too."
       >
         <div className="flex gap-2">
           {(
