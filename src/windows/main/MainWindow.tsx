@@ -1,195 +1,297 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import logo from "../../../assets/icon.svg";
+import Editor, { type EditorDoc } from "../../editor/Editor";
+import Gallery from "../../gallery/Gallery";
 import {
-  CAPTURE_FAILED_EVENT,
+  api,
+  errorMessage,
+  type SettingsView,
+  type ShortcutAction,
+} from "../../lib/api";
+import {
   CAPTURE_SAVED_EVENT,
-  type CaptureEntry,
-  type CaptureMode,
+  EDITOR_OPEN_EVENT,
+  ERROR_EVENT,
   type CaptureSaved,
-  type HotkeyStatus,
-  getHotkeyStatus,
-  listRecentCaptures,
-  openKeyboardSettings,
+  annotateClipboard,
   startCapture,
 } from "../../lib/capture";
-import RecentCaptures from "./RecentCaptures";
+import Settings, { Keys } from "../../settings/Settings";
 import UpdateBanner from "./UpdateBanner";
 import { useUpdater } from "./useUpdater";
 
-const RECENT_LIMIT = 24;
+type View = "capture" | "gallery" | "settings";
+
+const NAV: { view: View; label: string }[] = [
+  { view: "capture", label: "Capture" },
+  { view: "gallery", label: "Gallery" },
+  { view: "settings", label: "Settings" },
+];
 
 const captureModes: {
-  mode: CaptureMode;
   name: string;
   hint: string;
-  keys: string[];
+  shortcut: ShortcutAction;
+  run: () => Promise<void>;
 }[] = [
   {
-    mode: "interactive",
     name: "Region or window",
     hint: "Drag to select an area, or click a window",
-    keys: ["PrtSc"],
+    shortcut: "captureRegion",
+    run: () => startCapture("interactive"),
   },
   {
-    mode: "fullscreen",
     name: "Full screen",
     hint: "Capture the monitor under the cursor",
-    keys: ["Shift", "PrtSc"],
+    shortcut: "captureFullscreen",
+    run: () => startCapture("fullscreen"),
+  },
+  {
+    name: "From clipboard",
+    hint: "Annotate a copied image (Ctrl+V)",
+    shortcut: "annotateClipboard",
+    run: annotateClipboard,
   },
 ];
 
-interface Toast {
-  kind: "success" | "error";
-  text: string;
-}
-
 export default function MainWindow() {
   const [version, setVersion] = useState<string>();
-  const [hotkey, setHotkey] = useState<HotkeyStatus>();
-  const [captures, setCaptures] = useState<CaptureEntry[]>([]);
-  const [toast, setToast] = useState<Toast | null>(null);
   const updater = useUpdater();
+  const [view, setView] = useState<View>("capture");
+  const [doc, setDoc] = useState<EditorDoc | null>(null);
+  const [settings, setSettings] = useState<SettingsView>();
+  const [galleryKey, setGalleryKey] = useState(0);
+  const [toast, setToast] = useState<string>();
+  const toastTimer = useRef<number>(undefined);
 
-  useEffect(() => {
-    getVersion().then(setVersion, () => undefined);
-    getHotkeyStatus().then(setHotkey, () => undefined);
-    listRecentCaptures(RECENT_LIMIT).then(setCaptures, () => undefined);
-
-    const unlisteners = [
-      listen<CaptureSaved>(CAPTURE_SAVED_EVENT, ({ payload }) => {
-        setCaptures((list) => [payload.entry, ...list].slice(0, RECENT_LIMIT));
-        setToast({
-          kind: "success",
-          text: payload.copied
-            ? "Copied to clipboard and saved to Pictures\\Snipit"
-            : "Saved to Pictures\\Snipit",
-        });
-      }),
-      listen<string>(CAPTURE_FAILED_EVENT, ({ payload }) =>
-        setToast({ kind: "error", text: payload }),
-      ),
-    ];
-    return () => unlisteners.forEach((u) => u.then((off) => off()));
+  const notify = useCallback((message: string) => {
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(undefined), 3000);
   }, []);
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 3500);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const refreshGallery = useCallback(() => setGalleryKey((n) => n + 1), []);
 
-  const hotkeyProblem =
-    hotkey && (hotkey.reservedByWindows || !hotkey.registered);
+  const openSnip = useCallback(
+    async (path: string) => {
+      try {
+        setDoc({ path, png: await api.readSnip(path) });
+      } catch (e) {
+        notify(errorMessage(e));
+      }
+    },
+    [notify],
+  );
+
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(undefined));
+    api
+      .getSettings()
+      .then(setSettings)
+      .catch((e) => notify(errorMessage(e)));
+  }, [notify]);
+
+  useEffect(() => {
+    const subscriptions = [
+      listen<{ path: string }>(
+        EDITOR_OPEN_EVENT,
+        (e) => void openSnip(e.payload.path),
+      ),
+      listen<CaptureSaved>(CAPTURE_SAVED_EVENT, (e) => {
+        refreshGallery();
+        if (e.payload.copied) {
+          notify("Copied to clipboard and saved to Pictures\\Snipit");
+        }
+      }),
+      listen<string>(ERROR_EVENT, (e) => notify(e.payload)),
+    ];
+    return () => {
+      for (const sub of subscriptions) void sub.then((off) => off());
+    };
+  }, [notify, openSnip, refreshGallery]);
+
+  // Ctrl+V outside the editor annotates the clipboard image.
+  useEffect(() => {
+    if (doc) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        annotateClipboard().catch((err) => notify(errorMessage(err)));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doc, notify]);
+
+  const regionKey = settings?.settings.shortcuts.captureRegion;
+  const reservedByWindows =
+    !!settings?.printscreenReservedByWindows &&
+    !!regionKey?.includes("PrintScreen");
+  const regionKeyFailed = !!settings?.shortcutErrors.captureRegion;
 
   return (
     <main className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-        <img src={logo} alt="" className="size-9" />
-        <div>
-          <h1 className="text-lg leading-tight font-semibold">Snipit</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Capture. Annotate. Share.
-          </p>
-        </div>
-      </header>
-
       <UpdateBanner
         state={updater.state}
         onInstall={updater.install}
         onDismiss={updater.dismiss}
       />
+      {doc ? (
+        <Editor
+          doc={doc}
+          onClose={() => setDoc(null)}
+          onSaved={refreshGallery}
+          notify={notify}
+        />
+      ) : (
+        <>
+          <header className="flex items-center gap-3 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
+            <img src={logo} alt="" className="size-8" />
+            <h1 className="mr-4 text-lg leading-tight font-semibold">Snipit</h1>
+            <nav className="flex gap-1">
+              {NAV.map((item) => (
+                <button
+                  key={item.view}
+                  type="button"
+                  onClick={() => setView(item.view)}
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    view === item.view
+                      ? "bg-zinc-200/70 font-medium dark:bg-zinc-800"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </header>
 
-      <div className="flex-1 overflow-auto px-6 py-6">
-        {hotkeyProblem && (
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-            <p className="flex-1">
-              {hotkey.reservedByWindows
-                ? "Windows is using the Print Screen key for Snipping Tool. Turn off “Use the Print screen key to open screen capture” to capture with PrtSc."
-                : "Snipit couldn't register the Print Screen key; another screenshot tool is probably using it. Close that app and restart Snipit, or capture from here or the tray menu."}
-            </p>
-            {hotkey.reservedByWindows && (
+          <section className="flex-1 overflow-auto px-6 py-6">
+            {view === "capture" && (
+              <>
+                {(reservedByWindows || regionKeyFailed) && (
+                  <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                    <p className="flex-1">
+                      {reservedByWindows
+                        ? "Windows is using the Print Screen key for Snipping Tool. Turn off “Use the Print screen key to open screen capture” to capture with PrtSc."
+                        : "Snipit couldn't register its capture shortcut; another app is probably using it. Pick a different key in Settings, or capture from here or the tray menu."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reservedByWindows
+                          ? void api.openKeyboardSettings()
+                          : setView("settings")
+                      }
+                      className="rounded-md bg-amber-900 px-3 py-1.5 font-medium text-white hover:bg-amber-800 dark:bg-amber-300 dark:text-amber-950 dark:hover:bg-amber-200"
+                    >
+                      {reservedByWindows
+                        ? "Open keyboard settings"
+                        : "Change shortcut"}
+                    </button>
+                  </div>
+                )}
+
+                <h2 className="mb-4 text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
+                  New capture
+                </h2>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  {captureModes.map((mode) => {
+                    const accel = settings?.settings.shortcuts[mode.shortcut];
+                    return (
+                      <button
+                        key={mode.name}
+                        type="button"
+                        onClick={() =>
+                          mode.run().catch((e) => notify(errorMessage(e)))
+                        }
+                        className="rounded-xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:border-brand-500 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500 dark:border-zinc-800 dark:bg-zinc-900"
+                      >
+                        <span className="block font-medium">{mode.name}</span>
+                        <span className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
+                          {mode.hint}
+                        </span>
+                        {accel && (
+                          <span className="mt-3 block text-zinc-500">
+                            <Keys accelerator={accel} />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-8 mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
+                    Recent snips
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setView("gallery")}
+                    className="text-sm text-brand-600 hover:underline dark:text-brand-500"
+                  >
+                    View gallery
+                  </button>
+                </div>
+                <Gallery
+                  refreshKey={galleryKey}
+                  onOpen={(snip) => void openSnip(snip.path)}
+                  notify={notify}
+                  limit={4}
+                />
+              </>
+            )}
+
+            {view === "gallery" && (
+              <Gallery
+                refreshKey={galleryKey}
+                onOpen={(snip) => void openSnip(snip.path)}
+                notify={notify}
+              />
+            )}
+
+            {view === "settings" && (
+              <Settings
+                view={settings}
+                onChange={setSettings}
+                notify={notify}
+              />
+            )}
+          </section>
+
+          <footer className="flex items-center justify-between border-t border-zinc-200 px-6 py-3 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
+            <span>Closing this window keeps Snipit running in the tray.</span>
+            <span className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => void openKeyboardSettings()}
-                className="rounded-md bg-amber-900 px-3 py-1.5 font-medium text-white hover:bg-amber-800 dark:bg-amber-300 dark:text-amber-950 dark:hover:bg-amber-200"
+                onClick={updater.checkForUpdates}
+                disabled={updater.state.status === "checking"}
+                className="hover:text-zinc-600 disabled:opacity-60 dark:hover:text-zinc-300"
               >
-                Open keyboard settings
+                {updater.state.status === "checking"
+                  ? "Checking for updates…"
+                  : "Check for updates"}
               </button>
-            )}
-          </div>
-        )}
-
-        <h2 className="mb-3 text-xs font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-          New capture
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {captureModes.map((m) => (
-            <button
-              key={m.mode}
-              type="button"
-              onClick={() => void startCapture(m.mode)}
-              className="group rounded-xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:border-brand-500 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-brand-500"
-            >
-              <span className="flex items-center justify-between gap-2">
-                <span className="font-medium">{m.name}</span>
-                <span className="flex gap-1">
-                  {m.keys.map((k) => (
-                    <kbd
-                      key={k}
-                      className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 font-sans text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                    >
-                      {k}
-                    </kbd>
-                  ))}
-                </span>
-              </span>
-              <span className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
-                {m.hint}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <h2 className="mt-8 mb-3 text-xs font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-          Recent captures
-        </h2>
-        <RecentCaptures
-          captures={captures}
-          onCopied={() =>
-            setToast({ kind: "success", text: "Copied to clipboard" })
-          }
-        />
-      </div>
-
-      <footer className="flex items-center justify-between border-t border-zinc-200 px-6 py-3 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-        <span>Closing this window keeps Snipit running in the tray.</span>
-        <span className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={updater.checkForUpdates}
-            disabled={updater.state.status === "checking"}
-            className="hover:text-zinc-600 disabled:opacity-60 dark:hover:text-zinc-300"
-          >
-            {updater.state.status === "checking"
-              ? "Checking for updates…"
-              : "Check for updates"}
-          </button>
-          <span>{version ? `v${version}` : ""}</span>
-        </span>
-      </footer>
+              <span>{version ? `v${version}` : ""}</span>
+            </span>
+          </footer>
+        </>
+      )}
 
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-14 left-1/2 -translate-x-1/2 rounded-lg px-4 py-2 text-sm text-white shadow-lg ${
-            toast.kind === "success"
-              ? "bg-zinc-900 dark:bg-zinc-700"
-              : "bg-red-600"
-          }`}
+          className="pointer-events-none fixed inset-x-0 bottom-14 flex justify-center"
         >
-          {toast.text}
+          <div className="rounded-lg bg-zinc-900/90 px-4 py-2 text-sm text-white shadow-lg dark:bg-zinc-100/95 dark:text-zinc-900">
+            {toast}
+          </div>
         </div>
       )}
     </main>

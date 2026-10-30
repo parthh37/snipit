@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 
 /** A point in physical pixels. */
 export interface Point {
@@ -25,29 +25,23 @@ export interface OverlayInfo {
   cursor: Point | null;
 }
 
-export interface CaptureEntry {
-  path: string;
-  name: string;
-  width: number;
-  height: number;
-  createdMs: number;
-}
-
+/** Payload of {@link CAPTURE_SAVED_EVENT}. */
 export interface CaptureSaved {
-  entry: CaptureEntry;
+  path: string;
   copied: boolean;
 }
 
-export interface HotkeyStatus {
-  registered: boolean;
-  reservedByWindows: boolean;
-}
-
+/** A new snip was saved to the gallery (from a capture or the clipboard). */
 export const CAPTURE_SAVED_EVENT = "capture-saved";
-export const CAPTURE_FAILED_EVENT = "capture-failed";
+/** Asks the main window to open a snip in the editor; payload `{ path }`. */
+export const EDITOR_OPEN_EVENT = "editor:open";
+/** A capture or clipboard import failed; payload is the message. */
+export const ERROR_EVENT = "app:error";
 
 export const startCapture = (mode: CaptureMode) =>
   invoke<void>("start_capture", { mode });
+
+export const annotateClipboard = () => invoke<void>("annotate_clipboard_cmd");
 
 export const getOverlayInfo = () => invoke<OverlayInfo>("overlay_info");
 
@@ -58,19 +52,3 @@ export const finishCapture = (rect: Rect) =>
   invoke<void>("finish_capture", { rect });
 
 export const cancelCapture = () => invoke<void>("cancel_capture");
-
-export const listRecentCaptures = (limit: number) =>
-  invoke<CaptureEntry[]>("list_recent_captures", { limit });
-
-export const copyCapture = (path: string) =>
-  invoke<void>("copy_capture", { path });
-
-export const revealCapture = (path: string) =>
-  invoke<void>("reveal_capture", { path });
-
-export const getHotkeyStatus = () => invoke<HotkeyStatus>("hotkey_status");
-
-export const openKeyboardSettings = () =>
-  invoke<void>("open_keyboard_settings");
-
-export const captureSrc = (entry: CaptureEntry) => convertFileSrc(entry.path);

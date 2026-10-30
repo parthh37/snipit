@@ -23,6 +23,31 @@ managed/IT deployments.
 - **Organise** — auto-saved library with search and tags, non-destructive `.snip` project files
 - **Share** — clipboard, PNG/JPG/WebP/PDF export, upload integrations
 
+## Using Snipit
+
+Snipit starts with Windows (in release builds) and waits in the system tray.
+
+| Action                        | How                                                         |
+| ----------------------------- | ----------------------------------------------------------- |
+| Region or window              | `PrtSc`, then drag a region or click a window               |
+| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open |
+| Cancel                        | `Esc` or right-click                                        |
+| Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu               |
+| From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
+
+All shortcuts can be changed in **Settings**. Every capture is saved as a PNG in
+`Pictures\Snipit` and listed in the **Gallery**; Settings picks whether a new capture then
+opens in the editor (the default) or goes straight to the clipboard.
+
+If `PrtSc` doesn't work, either Windows is using it for Snipping Tool (turn off **Settings →
+Accessibility → Keyboard → Use the Print screen key to open screen capture**) or another
+screenshot tool (Snagit, ShareX, OneDrive…) has claimed it. Snipit shows a notice in its
+window when this happens, and you can pick another key in Settings.
+
+The editor has arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step
+number and pixelate tools (single-letter shortcuts shown in tooltips), undo/redo, and pastes
+images from the clipboard. **Copy** puts the annotated image on the clipboard and saves it.
+
 ## Tech stack
 
 [Tauri 2](https://tauri.app) (Rust core) + React + TypeScript + Konva.js. Windows first,
@@ -44,21 +69,6 @@ npm run release -- 0.2.0  # bump version, commit and tag a release
 
 Snipit lives in the system tray: closing the window hides it, and **Quit** in the tray
 menu exits.
-
-## Capturing
-
-| Action                        | How                                                         |
-| ----------------------------- | ----------------------------------------------------------- |
-| Region or window              | `PrtSc`, then drag a region or click a window               |
-| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open |
-| Cancel                        | `Esc` or right-click                                        |
-| From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
-
-Every capture is copied to the clipboard and saved as a PNG in `Pictures\Snipit`.
-
-If `PrtSc` doesn't work, either Windows is using it for Snipping Tool (turn off **Settings →
-Accessibility → Keyboard → Use the Print screen key to open screen capture**) or another
-screenshot tool has claimed it. Snipit shows a notice in its window when this happens.
 
 ## Docs
 

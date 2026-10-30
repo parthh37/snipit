@@ -15,28 +15,32 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 
 ## M1 — Capture MVP
 
-- [x] Global hotkey (`PrintScreen` default)
+- [x] Global hotkeys, rebindable in Settings (`PrintScreen` region, `Shift+PrintScreen` full screen)
 - [x] Freeze-frame region overlay across all monitors (mixed DPI) — _not yet tested on a multi-monitor setup_
 - [x] Magnifier loupe, size readout, Esc to cancel
 - [x] Window capture (hover highlight) — top-level windows; child controls come later
 - [x] Full screen / single-monitor capture
-- [x] Copy to clipboard + auto-save PNG to library folder
+- [x] Copy to clipboard or open in the editor + auto-save PNG to library folder (`Pictures\Snipit`)
 - [x] `--capture` / `--capture-fullscreen` command-line flags
 
 ## M2 — Editor MVP
 
-- [ ] Editor window with zoom/pan, undo/redo
-- [ ] Tools: arrow, rectangle, ellipse, line, text, callout, step numbers, highlighter
-- [ ] Blur / pixelate
+- [x] Editor with undo/redo, paste images from the clipboard
+- [ ] Editor zoom/pan
+- [x] Tools: arrow, rectangle, ellipse, line, pen, text, text bubble (callout), step numbers, highlighter
+- [x] Pixelate
+- [ ] Blur
 - [ ] Crop & resize
 - [ ] Recent captures tray
 - [ ] `.snip` project file (non-destructive) + export PNG/JPG/WebP/PDF
 
 ## M3 — Workflow
 
-- [ ] Library window (date grouping, search, tags)
+- [x] Gallery of saved snips (open, copy, show in folder, delete)
+- [ ] Gallery date grouping, search, tags
 - [ ] Capture presets (capture type → effects → output)
-- [ ] Settings: hotkeys, output folder, filename template, theme, autostart
+- [x] Settings: hotkeys, after-capture action, launch at startup
+- [ ] Settings: output folder, filename template, theme
 - [ ] Delayed capture, cursor capture, repeat last capture
 - [ ] Quick styles for tools
 - [ ] Effects: border, shadow, torn edge; magnify, spotlight, pen

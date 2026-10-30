@@ -8,6 +8,7 @@
 pub mod geometry;
 mod window_list;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -20,12 +21,17 @@ use tauri::{
 use xcap::Monitor;
 use xcap::image::{RgbaImage, imageops};
 
-use crate::{hotkey, library, tray};
+use crate::settings::{self, AfterCapture};
+use crate::{clipboard, gallery, shortcuts, tray};
 use geometry::{Point, Rect};
 
 const OVERLAY_PREFIX: &str = "overlay-";
+/// A new snip was saved to the gallery.
 pub const CAPTURE_SAVED_EVENT: &str = "capture-saved";
-pub const CAPTURE_FAILED_EVENT: &str = "capture-failed";
+/// Asks the main window to open a snip in the editor.
+pub const EDITOR_OPEN_EVENT: &str = "editor:open";
+/// A capture or clipboard import failed; the payload is the message to show.
+pub const ERROR_EVENT: &str = "app:error";
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -46,6 +52,8 @@ struct Session {
     /// Global window bounds, topmost first.
     windows: Vec<Rect>,
     cursor: Option<Point>,
+    /// Whether the main window was hidden for the capture and should come back afterwards.
+    restore_main: bool,
 }
 
 impl Session {
@@ -72,8 +80,13 @@ pub struct CaptureState(Mutex<Option<Session>>);
 
 #[derive(Debug, Clone, Serialize)]
 struct CaptureSaved {
-    entry: library::CaptureEntry,
+    path: PathBuf,
     copied: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenEditor {
+    path: PathBuf,
 }
 
 /// Starts a capture on a background thread. `settle` gives menus and our own window time to
@@ -82,8 +95,7 @@ pub fn start(app: &AppHandle, mode: CaptureMode, settle: bool) {
     let app = app.clone();
     thread::spawn(move || {
         if let Err(err) = run(&app, mode, settle) {
-            eprintln!("Capture failed: {err}");
-            let _ = app.emit(CAPTURE_FAILED_EVENT, err);
+            report_error(&app, format!("Capture failed: {err}"));
         }
     });
 }
@@ -95,16 +107,14 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
         return Ok(()); // A capture is already open.
     }
 
-    if let Some(main) = app.get_webview_window("main")
-        && main.is_visible().unwrap_or(false)
-    {
-        let _ = main.hide();
+    let restore_main = hide_main(app);
+    if restore_main {
         thread::sleep(Duration::from_millis(250));
     } else if settle {
         thread::sleep(Duration::from_millis(150));
     }
 
-    let session = freeze(app)?;
+    let session = freeze(app, restore_main)?;
     match mode {
         CaptureMode::Fullscreen => {
             let index = session.monitor_under_cursor();
@@ -112,7 +122,7 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
             let full = Rect::new(0, 0, bounds.width, bounds.height);
             let image = session.crop(index, full).ok_or("Empty monitor")?;
             drop(slot);
-            deliver(app, &image)
+            deliver(app, &image, restore_main)
         }
         CaptureMode::Interactive => {
             let bounds: Vec<Rect> = session.monitors.iter().map(|m| m.bounds).collect();
@@ -120,11 +130,10 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
             drop(slot);
             // The overlays may not get keyboard focus (another app can hold the foreground),
             // so Esc is grabbed globally for as long as they are open.
-            hotkey::grab_escape(app);
+            shortcuts::grab_escape(app);
             for (i, b) in bounds.into_iter().enumerate() {
                 if let Err(err) = open_overlay(app, i, b) {
-                    close_overlays(app);
-                    *state.0.lock().map_err(|e| e.to_string())? = None;
+                    cancel(app);
                     return Err(err.to_string());
                 }
             }
@@ -133,7 +142,19 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
     }
 }
 
-fn freeze(app: &AppHandle) -> Result<Session, String> {
+/// Hides Snipit's own window so it stays out of the shot; returns whether it was showing.
+fn hide_main(app: &AppHandle) -> bool {
+    let Some(main) = app.get_webview_window("main") else {
+        return false;
+    };
+    let showing = main.is_visible().unwrap_or(false) && !main.is_minimized().unwrap_or(false);
+    if showing {
+        let _ = main.hide();
+    }
+    showing
+}
+
+fn freeze(app: &AppHandle, restore_main: bool) -> Result<Session, String> {
     let cursor = app.cursor_position().ok().map(|p| Point {
         x: p.x as i32,
         y: p.y as i32,
@@ -158,6 +179,7 @@ fn freeze(app: &AppHandle) -> Result<Session, String> {
         monitors,
         windows,
         cursor,
+        restore_main,
     })
 }
 
@@ -183,7 +205,7 @@ fn open_overlay(app: &AppHandle, index: usize, bounds: Rect) -> tauri::Result<()
 }
 
 fn close_overlays(app: &AppHandle) {
-    hotkey::release_escape(app);
+    shortcuts::release_escape(app);
     for (label, window) in app.webview_windows() {
         if is_overlay(&label) {
             let _ = window.destroy();
@@ -191,13 +213,62 @@ fn close_overlays(app: &AppHandle) {
     }
 }
 
-/// Copies the capture to the clipboard, saves it, and shows it in the main window.
-fn deliver(app: &AppHandle, image: &RgbaImage) -> Result<(), String> {
-    let copied = library::copy_to_clipboard(image).is_ok();
-    let entry = library::save_png(app, image)?;
+/// Saves the capture to the gallery, then copies it or opens it in the editor, as set in
+/// Settings.
+fn deliver(app: &AppHandle, image: &RgbaImage, restore_main: bool) -> Result<(), String> {
+    let path = gallery::save_new(app, &gallery::encode_png(image)?)?;
+    let action = settings::get(app).after_capture;
+    let copied = action == AfterCapture::Copy && clipboard::copy_image(image).is_ok();
+    let _ = app.emit(
+        CAPTURE_SAVED_EVENT,
+        CaptureSaved {
+            path: path.clone(),
+            copied,
+        },
+    );
+    match action {
+        AfterCapture::Edit => open_editor(app, path),
+        AfterCapture::Copy if !copied => {
+            return Err("Saved to the gallery, but couldn't copy it to the clipboard".into());
+        }
+        AfterCapture::Copy => {
+            if restore_main {
+                tray::show_main_window(app);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn open_editor(app: &AppHandle, path: PathBuf) {
     tray::show_main_window(app);
-    app.emit(CAPTURE_SAVED_EVENT, CaptureSaved { entry, copied })
-        .map_err(|e| e.to_string())
+    let _ = app.emit_to("main", EDITOR_OPEN_EVENT, OpenEditor { path });
+}
+
+fn report_error(app: &AppHandle, message: String) {
+    eprintln!("{message}");
+    tray::show_main_window(app);
+    let _ = app.emit_to("main", ERROR_EVENT, message);
+}
+
+/// Saves the clipboard image as a snip and opens it in the editor.
+pub fn annotate_clipboard(app: &AppHandle) {
+    let result = clipboard::read_image().and_then(|image| {
+        let image = image.ok_or("The clipboard doesn't contain an image.")?;
+        let path = gallery::save_new(app, &gallery::encode_png(&image)?)?;
+        let _ = app.emit(
+            CAPTURE_SAVED_EVENT,
+            CaptureSaved {
+                path: path.clone(),
+                copied: false,
+            },
+        );
+        open_editor(app, path);
+        Ok(())
+    });
+    if let Err(e) = result {
+        report_error(app, e);
+    }
 }
 
 fn overlay_index(window: &WebviewWindow) -> Result<usize, String> {
@@ -222,6 +293,11 @@ pub struct OverlayInfo {
 #[tauri::command]
 pub fn start_capture(app: AppHandle, mode: CaptureMode) {
     start(&app, mode, true);
+}
+
+#[tauri::command]
+pub async fn annotate_clipboard_cmd(app: AppHandle) {
+    annotate_clipboard(&app);
 }
 
 #[tauri::command]
@@ -284,9 +360,10 @@ pub fn finish_capture(
         .ok_or("No capture in progress")?;
     close_overlays(&app);
     let image = session.crop(index, rect).ok_or("Selection is empty")?;
+    let restore_main = session.restore_main;
     thread::spawn(move || {
-        if let Err(err) = deliver(&app, &image) {
-            let _ = app.emit(CAPTURE_FAILED_EVENT, err);
+        if let Err(err) = deliver(&app, &image, restore_main) {
+            report_error(&app, err);
         }
     });
     Ok(())
@@ -298,10 +375,16 @@ pub fn cancel_capture(app: AppHandle) {
 }
 
 pub fn cancel(app: &AppHandle) {
-    if let Ok(mut slot) = app.state::<CaptureState>().0.lock() {
-        *slot = None;
-    }
+    let session = app
+        .state::<CaptureState>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take());
     close_overlays(app);
+    if session.is_some_and(|s| s.restore_main) {
+        tray::show_main_window(app);
+    }
 }
 
 fn is_overlay(label: &str) -> bool {

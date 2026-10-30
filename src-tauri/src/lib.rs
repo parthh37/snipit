@@ -1,11 +1,18 @@
 mod capture;
-mod hotkey;
-mod library;
+mod clipboard;
+mod gallery;
+mod settings;
+mod shortcuts;
 mod tray;
 
-use tauri::{AppHandle, WindowEvent};
+use std::sync::Mutex;
+
+use tauri::{AppHandle, Manager, WindowEvent};
 
 use capture::CaptureMode;
+
+/// Passed by the launch-at-login entry so Snipit starts in the tray.
+const AUTOSTART_ARG: &str = "--minimized";
 
 /// Handles command-line flags, so `snipit --capture` can be bound to other tools or shortcuts.
 /// Returns false if there was nothing to do.
@@ -32,13 +39,53 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(shortcuts::handle)
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(AUTOSTART_ARG)
+                .build(),
+        )
         .manage(capture::CaptureState::default())
+        .manage(shortcuts::ShortcutErrors::default())
         .setup(|app| {
-            tray::init(app.handle())?;
-            hotkey::init(app.handle())?;
-            handle_args(app.handle(), &std::env::args().collect::<Vec<_>>());
+            let handle = app.handle();
+            app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
+            tray::init(handle)?;
+            shortcuts::register_all(handle);
+            shortcuts::init_autostart(handle);
+            let args: Vec<String> = std::env::args().collect();
+            let started_capture = handle_args(handle, &args);
+            if !started_capture && !args.iter().any(|arg| arg == AUTOSTART_ARG) {
+                tray::show_main_window(handle);
+            }
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            capture::start_capture,
+            capture::annotate_clipboard_cmd,
+            capture::overlay_info,
+            capture::overlay_frame,
+            capture::finish_capture,
+            capture::cancel_capture,
+            clipboard::copy_png,
+            clipboard::paste_image,
+            gallery::list_snips,
+            gallery::read_snip,
+            gallery::save_snip,
+            gallery::delete_snip,
+            gallery::reveal_snip,
+            gallery::open_gallery_folder,
+            settings::set_after_capture,
+            shortcuts::get_settings,
+            shortcuts::set_shortcut,
+            shortcuts::pause_shortcuts,
+            shortcuts::set_autostart,
+            shortcuts::open_keyboard_settings,
+        ])
         .on_window_event(|window, event| {
             // Closing the main window hides it to the tray; "Quit" in the tray menu exits.
             if let WindowEvent::CloseRequested { api, .. } = event
@@ -48,18 +95,6 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            capture::start_capture,
-            capture::overlay_info,
-            capture::overlay_frame,
-            capture::finish_capture,
-            capture::cancel_capture,
-            library::list_recent_captures,
-            library::copy_capture,
-            library::reveal_capture,
-            hotkey::hotkey_status,
-            hotkey::open_keyboard_settings,
-        ])
         .run(tauri::generate_context!())
         .expect("error while running Snipit");
 }

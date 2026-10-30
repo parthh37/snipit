@@ -8,6 +8,7 @@ use crate::capture::{self, CaptureMode};
 
 const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
+const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
 const MENU_OPEN: &str = "open";
 const MENU_CHECK_UPDATES: &str = "check-updates";
 const MENU_QUIT: &str = "quit";
@@ -31,6 +32,13 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let annotate_clipboard = MenuItem::with_id(
+        app,
+        MENU_ANNOTATE_CLIPBOARD,
+        "Annotate clipboard image",
+        true,
+        None::<&str>,
+    )?;
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Snipit", true, None::<&str>)?;
     let check_updates = MenuItem::with_id(
         app,
@@ -45,6 +53,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         &[
             &capture,
             &capture_fullscreen,
+            &annotate_clipboard,
             &PredefinedMenuItem::separator(app)?,
             &open,
             &check_updates,
@@ -60,6 +69,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_CAPTURE => capture::start(app, CaptureMode::Interactive, true),
             MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
+            MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
             MENU_OPEN => show_main_window(app),
             MENU_CHECK_UPDATES => {
                 show_main_window(app);
