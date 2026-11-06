@@ -251,8 +251,15 @@ fn report_error(app: &AppHandle, message: String) {
     let _ = app.emit_to("main", ERROR_EVENT, message);
 }
 
-/// Saves the clipboard image as a snip and opens it in the editor.
+/// Saves the clipboard image as a snip and opens it in the editor. Runs on a worker thread:
+/// the tray and shortcut handlers call this on the main thread, and encoding a large image
+/// there would freeze the app.
 pub fn annotate_clipboard(app: &AppHandle) {
+    let app = app.clone();
+    thread::spawn(move || annotate_clipboard_now(&app));
+}
+
+fn annotate_clipboard_now(app: &AppHandle) {
     let result = clipboard::read_image().and_then(|image| {
         let image = image.ok_or("The clipboard doesn't contain an image.")?;
         let path = gallery::save_new(app, &gallery::encode_png(&image)?)?;
@@ -297,7 +304,7 @@ pub fn start_capture(app: AppHandle, mode: CaptureMode) {
 
 #[tauri::command]
 pub async fn annotate_clipboard_cmd(app: AppHandle) {
-    annotate_clipboard(&app);
+    annotate_clipboard_now(&app);
 }
 
 #[tauri::command]

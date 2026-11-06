@@ -84,8 +84,16 @@ function loadImage(png: ArrayBuffer) {
   const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new window.Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Could not load the image"));
+    // A loaded image keeps its pixels, so the blob can go; otherwise every opened snip and
+    // paste would stay in memory for as long as Snipit sits in the tray.
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not load the image"));
+    };
     image.src = url;
   });
 }
@@ -163,9 +171,20 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const exportPng = useCallback(async () => {
     const stage = stageRef.current;
     if (!stage) throw new Error("Editor not ready");
+    // Render at the image's own size and scale 1 rather than scaling the on-screen stage back
+    // up: its size is rounded to whole screen pixels, which made exports a pixel or two off.
+    const view = { size: stage.size(), scale: stage.scale() };
     trRef.current?.visible(false);
-    const canvas = stage.toCanvas({ pixelRatio: 1 / viewScale });
-    trRef.current?.visible(true);
+    stage.size({ width: iw, height: ih });
+    stage.scale({ x: 1, y: 1 });
+    let canvas: HTMLCanvasElement;
+    try {
+      canvas = stage.toCanvas({ pixelRatio: 1 });
+    } finally {
+      stage.size(view.size);
+      stage.scale(view.scale);
+      trRef.current?.visible(true);
+    }
     const blob = await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("Export failed"))),
@@ -173,7 +192,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       ),
     );
     return new Uint8Array(await blob.arrayBuffer());
-  }, [viewScale]);
+  }, [iw, ih]);
 
   const save = useCallback(async () => {
     const saved = await api.saveSnip(await exportPng(), path);
@@ -212,7 +231,17 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   const close = () =>
     run(async () => {
-      if (dirty) await save();
+      if (dirty) {
+        try {
+          await save();
+        } catch (e) {
+          // Close is the only way out of the editor, so a failed save mustn't trap the user.
+          const discard = window.confirm(
+            `Couldn't save your changes: ${errorMessage(e)}\n\nClose anyway and discard them?`,
+          );
+          if (!discard) return;
+        }
+      }
       onClose();
     });
 
