@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Tool } from "./types";
+import type { LineStyle, Tool } from "./types";
 
 function Svg({ children }: { children: ReactNode }) {
   return (
@@ -91,6 +91,30 @@ const toolIcons: Record<Tool, ReactNode> = {
 export function ToolIcon({ tool }: { tool: Tool }) {
   return toolIcons[tool];
 }
+
+const DASH_ARRAYS: Record<LineStyle, string | undefined> = {
+  solid: undefined,
+  dashed: "5 4",
+  dotted: "0.1 4",
+};
+
+export const LineStyleIcon = ({ style }: { style: LineStyle }) => (
+  <Svg>
+    <path d="M4 12h16" strokeDasharray={DASH_ARRAYS[style]} strokeWidth={2.5} />
+  </Svg>
+);
+
+export const BothEndsIcon = () => (
+  <Svg>
+    <path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" />
+  </Svg>
+);
+
+export const RoundedIcon = () => (
+  <Svg>
+    <rect x="4" y="5" width="16" height="14" rx="5" />
+  </Svg>
+);
 
 export const UndoIcon = () => (
   <Svg>

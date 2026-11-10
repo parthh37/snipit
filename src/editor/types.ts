@@ -23,7 +23,16 @@ interface Base {
   scaleY?: number;
 }
 
-export interface BoxShape extends Base {
+export type LineStyle = "solid" | "dashed" | "dotted";
+
+/** Look of a stroked shape; missing fields mean solid and fully opaque. */
+interface Styled {
+  dash?: LineStyle;
+  /** 0–1. */
+  opacity?: number;
+}
+
+export interface BoxShape extends Base, Styled {
   type: "rect" | "ellipse";
   width: number;
   height: number;
@@ -31,14 +40,18 @@ export interface BoxShape extends Base {
   strokeWidth: number;
   /** Filled shapes use `stroke` as the fill colour. */
   filled: boolean;
+  /** Rectangles only: clearly rounded corners rather than just softened ones. */
+  rounded?: boolean;
 }
 
-export interface PathShape extends Base {
+export interface PathShape extends Base, Styled {
   type: "arrow" | "line" | "pen" | "highlighter";
   /** Flat `[x0, y0, x1, y1, …]`, relative to `x`/`y`. */
   points: number[];
   stroke: string;
   strokeWidth: number;
+  /** Arrows only: a head at the start as well as the end. */
+  bothEnds?: boolean;
 }
 
 export interface TextShape extends Base {

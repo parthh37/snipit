@@ -17,12 +17,15 @@ import {
 import { api, errorMessage } from "../lib/api";
 import ShapeNode from "./ShapeNode";
 import {
+  BothEndsIcon,
   CheckIcon,
   CloseIcon,
   CopyIcon,
   FitIcon,
+  LineStyleIcon,
   PasteIcon,
   RedoIcon,
+  RoundedIcon,
   SaveIcon,
   UndoIcon,
   ToolIcon,
@@ -37,6 +40,7 @@ import {
   type Area,
   type CalloutShape,
   type DocState,
+  type LineStyle,
   type Shape,
   type ShapePatch,
   type TextShape,
@@ -86,6 +90,28 @@ const COLORS = [
 ];
 
 const HIGHLIGHTER_COLORS = ["#facc15", "#4ade80", "#f472b6", "#60a5fa"];
+
+/** Tools (and shape types) that take a line style and opacity. */
+const STYLED_TOOLS = new Set<string>([
+  "arrow",
+  "line",
+  "pen",
+  "rect",
+  "ellipse",
+]);
+const OPACITIES = [1, 0.75, 0.5, 0.25];
+const LINE_STYLES: LineStyle[] = ["solid", "dashed", "dotted"];
+const nextLineStyle = (s: LineStyle) =>
+  LINE_STYLES[(LINE_STYLES.indexOf(s) + 1) % LINE_STYLES.length];
+
+/** The style controls' values. */
+interface ShapeStyle {
+  filled: boolean;
+  rounded: boolean;
+  dash: LineStyle;
+  bothEnds: boolean;
+  opacity: number;
+}
 
 type Size = "s" | "m" | "l";
 const STROKE = { s: 3, m: 5, l: 9 };
@@ -188,6 +214,10 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const [highlight, setHighlight] = useState(HIGHLIGHTER_COLORS[0]);
   const [size, setSize] = useState<Size>("m");
   const [filled, setFilled] = useState(false);
+  const [rounded, setRounded] = useState(false);
+  const [dash, setDash] = useState<LineStyle>("solid");
+  const [bothEnds, setBothEnds] = useState(false);
+  const [opacity, setOpacity] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraftState] = useState<Shape | null>(null);
   const [editing, setEditing] = useState<{
@@ -470,6 +500,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   const setTool = (next: Tool) => {
     if (next === tool) return;
+    // Shapes can't be picked while drawing, so a leftover selection would only confuse the
+    // toolbar about what it is styling.
+    if (next !== "select") setSelectedId(null);
     if (next === "crop") enterCrop();
     else if (cropping) leaveCrop(false, next);
     else setToolState(next);
@@ -561,6 +594,36 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     else if (selected.type === "callout" || selected.type === "step")
       update(selected.id, { fill: value });
     else if ("stroke" in selected) update(selected.id, { stroke: value });
+  };
+
+  // The style controls show and change the selected shape, or set up the next one drawn.
+  const boxSelected =
+    selected?.type === "rect" || selected?.type === "ellipse"
+      ? selected
+      : undefined;
+  const pathSelected =
+    selected?.type === "arrow" ||
+    selected?.type === "line" ||
+    selected?.type === "pen"
+      ? selected
+      : undefined;
+  const styledSelected = boxSelected ?? pathSelected;
+  const styleTarget = styledSelected?.type ?? tool;
+  const style: ShapeStyle = {
+    filled: boxSelected ? boxSelected.filled : filled,
+    rounded: boxSelected ? !!boxSelected.rounded : rounded,
+    dash: styledSelected ? (styledSelected.dash ?? "solid") : dash,
+    bothEnds: pathSelected ? !!pathSelected.bothEnds : bothEnds,
+    opacity: styledSelected ? (styledSelected.opacity ?? 1) : opacity,
+  };
+
+  const setStyle = (patch: Partial<ShapeStyle>) => {
+    if (patch.filled !== undefined) setFilled(patch.filled);
+    if (patch.rounded !== undefined) setRounded(patch.rounded);
+    if (patch.dash !== undefined) setDash(patch.dash);
+    if (patch.bothEnds !== undefined) setBothEnds(patch.bothEnds);
+    if (patch.opacity !== undefined) setOpacity(patch.opacity);
+    if (styledSelected) update(styledSelected.id, patch);
   };
 
   const paste = () =>
@@ -707,6 +770,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           stroke: color,
           strokeWidth: px(STROKE[size]),
           filled,
+          dash,
+          opacity,
+          ...(tool === "rect" && { rounded }),
         });
         break;
       case "pixelate":
@@ -727,16 +793,29 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           points: [0, 0, 0, 0],
           stroke: color,
           strokeWidth: px(STROKE[size]),
+          dash,
+          opacity,
+          ...(tool === "arrow" && { bothEnds }),
         });
         break;
       case "pen":
+        setDraft({
+          ...base,
+          type: tool,
+          points: [0, 0],
+          stroke: color,
+          strokeWidth: px(STROKE[size]),
+          dash,
+          opacity,
+        });
+        break;
       case "highlighter":
         setDraft({
           ...base,
           type: tool,
           points: [0, 0],
-          stroke: tool === "pen" ? color : highlight,
-          strokeWidth: px(tool === "pen" ? STROKE[size] : HIGHLIGHT[size]),
+          stroke: highlight,
+          strokeWidth: px(HIGHLIGHT[size]),
         });
         break;
       case "callout":
@@ -964,7 +1043,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   const onKeyDown = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") return;
+    if (["TEXTAREA", "INPUT", "SELECT"].includes(target.tagName)) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 
@@ -1102,19 +1181,74 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
                   />
                 </IconButton>
               ))}
-              {(tool === "rect" || tool === "ellipse") && (
-                <IconButton
-                  active={filled}
-                  title="Filled shape"
-                  onClick={() => setFilled(!filled)}
-                >
-                  <span
-                    className="size-3.5 rounded-sm border-2 border-current"
-                    style={{ background: filled ? "currentColor" : undefined }}
-                  />
-                </IconButton>
-              )}
             </div>
+
+            {STYLED_TOOLS.has(styleTarget) && (
+              <div className="flex items-center gap-0.5">
+                {(styleTarget === "rect" || styleTarget === "ellipse") && (
+                  <IconButton
+                    active={style.filled}
+                    title="Filled shape"
+                    onClick={() => setStyle({ filled: !style.filled })}
+                  >
+                    <span
+                      className="size-3.5 rounded-sm border-2 border-current"
+                      style={{
+                        background: style.filled ? "currentColor" : undefined,
+                      }}
+                    />
+                  </IconButton>
+                )}
+                {styleTarget === "rect" && (
+                  <IconButton
+                    active={style.rounded}
+                    title="Rounded corners"
+                    onClick={() => setStyle({ rounded: !style.rounded })}
+                  >
+                    <RoundedIcon />
+                  </IconButton>
+                )}
+                {!(
+                  (styleTarget === "rect" || styleTarget === "ellipse") &&
+                  style.filled
+                ) && (
+                  <IconButton
+                    title={`Line: ${style.dash} (click for ${nextLineStyle(style.dash)})`}
+                    onClick={() =>
+                      setStyle({ dash: nextLineStyle(style.dash) })
+                    }
+                  >
+                    <LineStyleIcon style={style.dash} />
+                  </IconButton>
+                )}
+                {styleTarget === "arrow" && (
+                  <IconButton
+                    active={style.bothEnds}
+                    title="Arrowhead at both ends"
+                    onClick={() => setStyle({ bothEnds: !style.bothEnds })}
+                  >
+                    <BothEndsIcon />
+                  </IconButton>
+                )}
+                <select
+                  title="Opacity"
+                  aria-label="Opacity"
+                  value={style.opacity}
+                  onChange={(e) => {
+                    setStyle({ opacity: Number(e.target.value) });
+                    // Hand the keyboard back to the tool shortcuts.
+                    e.currentTarget.blur();
+                  }}
+                  className="h-8 rounded-md bg-transparent px-1 text-sm text-zinc-600 tabular-nums hover:bg-zinc-100 dark:text-zinc-300 dark:scheme-dark dark:hover:bg-zinc-800"
+                >
+                  {OPACITIES.map((o) => (
+                    <option key={o} value={o}>
+                      {Math.round(o * 100)}%
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </>
         )}
 
