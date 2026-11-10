@@ -26,11 +26,12 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 ## M2 — Editor MVP
 
 - [x] Editor with undo/redo, paste images from the clipboard
-- [ ] Editor zoom/pan
+- [x] Editor zoom/pan (Ctrl+scroll, Space/middle-drag pan, fit / 100%)
 - [x] Tools: arrow, rectangle, ellipse, line, pen, text, text bubble (callout), step numbers, highlighter
 - [x] Pixelate
-- [ ] Blur
-- [ ] Crop & resize
+- [x] Blur
+- [x] Crop (non-destructive, undoable)
+- [ ] Resize image / canvas
 - [ ] Recent captures tray
 - [ ] `.snip` project file (non-destructive) + export PNG/JPG/WebP/PDF
 
