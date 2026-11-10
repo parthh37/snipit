@@ -1,0 +1,2459 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snipit — Capture. Annotate. Share.</title>
+    <meta
+      name="description"
+      content="Snipit is a free, open-source screen capture and annotation tool for Windows. Press PrtSc, grab a region or window, mark it up and paste it anywhere."
+    />
+    <meta property="og:title" content="Snipit — Capture. Annotate. Share." />
+    <meta
+      property="og:description"
+      content="Free, open-source screen capture and annotation for Windows."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f7f7fb;
+        --bg-alt: #ffffff;
+        --surface: #ffffff;
+        --surface-2: #f1f1f6;
+        --border: #e3e3ec;
+        --text: #15151d;
+        --muted: #5d5d6e;
+        --faint: #8a8a9b;
+        --brand: #6c5cff;
+        --brand-2: #2e8bff;
+        --brand-soft: #ece9ff;
+        --ok: #16a34a;
+        --code-bg: #15151d;
+        --code-text: #e6e6f0;
+        --shadow:
+          0 1px 2px rgb(20 20 40 / 6%), 0 12px 40px rgb(40 30 120 / 12%);
+        --radius: 14px;
+        --gradient: linear-gradient(135deg, #7c5cff 0%, #2e8bff 100%);
+        --font:
+          "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+          BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+        --mono:
+          "Cascadia Code", "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo,
+          Consolas, monospace;
+        color-scheme: light;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0c0c12;
+          --bg-alt: #111119;
+          --surface: #16161f;
+          --surface-2: #1d1d28;
+          --border: #2a2a38;
+          --text: #ededf5;
+          --muted: #a3a3b5;
+          --faint: #74748a;
+          --brand: #8f80ff;
+          --brand-soft: #221e45;
+          --ok: #4ade80;
+          --code-bg: #0a0a10;
+          --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 20px 60px rgb(0 0 0 / 45%);
+          color-scheme: dark;
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      img,
+      svg {
+        display: block;
+      }
+
+      .wrap {
+        width: 100%;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      kbd {
+        display: inline-block;
+        min-width: 1.9em;
+        padding: 0.1em 0.5em;
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        background: var(--surface);
+        font-family: var(--font);
+        font-size: 0.82em;
+        font-weight: 600;
+        line-height: 1.5;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        padding: 0.1em 0.35em;
+        border-radius: 5px;
+        background: var(--surface-2);
+      }
+
+      /* ---------- nav ---------- */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        border-bottom: 1px solid
+          color-mix(in srgb, var(--border) 70%, transparent);
+      }
+
+      .nav .wrap {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        height: 64px;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 19px;
+        letter-spacing: -0.01em;
+        text-decoration: none;
+      }
+
+      .logo img {
+        width: 30px;
+        height: 30px;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 22px;
+        margin-left: auto;
+        font-size: 15px;
+      }
+
+      .nav-links a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      .nav-links a:hover {
+        color: var(--text);
+      }
+
+      /* ---------- buttons ---------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 20px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        font: inherit;
+        font-size: 16px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .btn svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .btn-primary {
+        background: var(--gradient);
+        color: #fff;
+        box-shadow: 0 6px 20px rgb(108 92 255 / 35%);
+      }
+
+      .btn-primary:hover {
+        box-shadow: 0 10px 28px rgb(108 92 255 / 45%);
+      }
+
+      .btn-ghost {
+        background: var(--surface);
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .btn-sm {
+        padding: 7px 14px;
+        font-size: 14px;
+      }
+
+      /* ---------- hero ---------- */
+      .hero {
+        position: relative;
+        overflow: hidden;
+        padding: 72px 0 40px;
+        text-align: center;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: -40% -10% auto;
+        height: 720px;
+        background:
+          radial-gradient(
+            closest-side at 35% 50%,
+            rgb(124 92 255 / 22%),
+            transparent
+          ),
+          radial-gradient(
+            closest-side at 65% 45%,
+            rgb(46 139 255 / 18%),
+            transparent
+          );
+        pointer-events: none;
+      }
+
+      .hero > * {
+        position: relative;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 14px 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .pill b {
+        padding: 1px 9px;
+        border-radius: 999px;
+        background: var(--brand-soft);
+        color: var(--brand);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+
+      h1 {
+        margin: 22px auto 0;
+        max-width: 1000px;
+        font-size: clamp(42px, 7vw, 76px);
+        line-height: 1.04;
+        letter-spacing: -0.035em;
+        font-weight: 800;
+      }
+
+      .grad {
+        background: var(--gradient);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .lede {
+        max-width: 640px;
+        margin: 22px auto 0;
+        color: var(--muted);
+        font-size: clamp(17px, 2.1vw, 20px);
+      }
+
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 34px;
+      }
+
+      .fineprint {
+        margin-top: 16px;
+        color: var(--faint);
+        font-size: 14px;
+      }
+
+      /* ---------- app mockup ---------- */
+      .stage {
+        margin: 56px auto 0;
+        max-width: 1000px;
+        perspective: 1800px;
+      }
+
+      .window {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        text-align: left;
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 38px;
+        padding: 0 6px 0 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .titlebar img {
+        width: 16px;
+        height: 16px;
+      }
+
+      .titlebar .controls {
+        display: flex;
+        margin-left: auto;
+      }
+
+      .titlebar .controls span {
+        width: 40px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        color: var(--faint);
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .tool {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        color: var(--muted);
+      }
+
+      .tool svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .tool.on {
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+
+      .sep {
+        flex: none;
+        width: 1px;
+        height: 22px;
+        margin: 0 6px;
+        background: var(--border);
+      }
+
+      .swatch {
+        flex: none;
+        width: 18px;
+        height: 18px;
+        margin: 0 3px;
+        border-radius: 50%;
+      }
+
+      .swatch.on {
+        box-shadow:
+          0 0 0 2px var(--surface),
+          0 0 0 4px var(--text);
+      }
+
+      .toolbar .spacer {
+        flex: 1;
+      }
+
+      .copy-btn {
+        flex: none;
+        padding: 6px 14px;
+        border-radius: 8px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .canvas {
+        padding: 28px;
+        background-color: var(--surface-2);
+        background-image:
+          linear-gradient(45deg, var(--border) 25%, transparent 25%),
+          linear-gradient(-45deg, var(--border) 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, var(--border) 75%),
+          linear-gradient(-45deg, transparent 75%, var(--border) 75%);
+        background-size: 18px 18px;
+        background-position:
+          0 0,
+          0 9px,
+          9px -9px,
+          -9px 0;
+      }
+
+      .canvas svg {
+        width: 100%;
+        height: auto;
+        border-radius: 6px;
+        box-shadow: 0 10px 30px rgb(0 0 0 / 18%);
+      }
+
+      .statusbar {
+        display: flex;
+        gap: 18px;
+        padding: 6px 14px;
+        border-top: 1px solid var(--border);
+        color: var(--faint);
+        font-size: 12px;
+      }
+
+      .statusbar span:last-child {
+        margin-left: auto;
+      }
+
+      /* annotation draw-in */
+      .draw {
+        stroke-dasharray: var(--len);
+        stroke-dashoffset: var(--len);
+        animation: draw 0.7s ease-out forwards;
+        animation-delay: var(--d, 0s);
+      }
+
+      .pop {
+        opacity: 0;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+        animation-delay: var(--d, 0s);
+      }
+
+      @keyframes draw {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: scale(0.6);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .draw,
+        .pop {
+          animation: none;
+          stroke-dashoffset: 0;
+          opacity: 1;
+        }
+      }
+
+      /* ---------- sections ---------- */
+      section {
+        padding: 96px 0;
+      }
+
+      section.alt {
+        background: var(--bg-alt);
+        border-block: 1px solid var(--border);
+      }
+
+      .eyebrow {
+        color: var(--brand);
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        margin: 8px 0 0;
+        font-size: clamp(30px, 4.2vw, 44px);
+        line-height: 1.12;
+        letter-spacing: -0.025em;
+        font-weight: 800;
+      }
+
+      .section-lede {
+        max-width: 620px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .center {
+        text-align: center;
+      }
+
+      .center .section-lede {
+        margin-inline: auto;
+      }
+
+      /* steps */
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-top: 48px;
+        counter-reset: step;
+      }
+
+      .step {
+        position: relative;
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .step-num {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: #ef4444;
+        color: #fff;
+        font-weight: 800;
+        font-size: 16px;
+      }
+
+      .step h3 {
+        margin: 18px 0 6px;
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+
+      .step p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      /* features */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-top: 48px;
+      }
+
+      .feature {
+        padding: 26px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        transition:
+          border-color 0.2s ease,
+          transform 0.2s ease;
+      }
+
+      .feature:hover {
+        border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+        transform: translateY(-2px);
+      }
+
+      .feature .icon {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 11px;
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+
+      .feature .icon svg {
+        width: 22px;
+        height: 22px;
+      }
+
+      .feature h3 {
+        margin: 18px 0 6px;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+
+      .feature p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      /* tools */
+      .tools {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+        gap: 12px;
+        margin-top: 44px;
+      }
+
+      .tool-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        font-weight: 600;
+        font-size: 15px;
+      }
+
+      .tool-card svg {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        color: var(--brand);
+      }
+
+      .tool-card kbd {
+        margin-left: auto;
+      }
+
+      /* split */
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr;
+        gap: 56px;
+        align-items: center;
+      }
+
+      .shortcuts {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--surface);
+        font-size: 16px;
+      }
+
+      .shortcuts td {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+      }
+
+      .shortcuts tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .shortcuts td:last-child {
+        text-align: right;
+        color: var(--muted);
+      }
+
+      .checklist {
+        margin: 26px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .checklist li {
+        position: relative;
+        padding-left: 30px;
+        margin: 12px 0;
+        color: var(--muted);
+      }
+
+      .checklist li b {
+        color: var(--text);
+      }
+
+      .checklist li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 4px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--brand-soft)
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236c5cff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")
+          center / 12px no-repeat;
+      }
+
+      /* roadmap */
+      .roadmap {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-top: 48px;
+      }
+
+      .milestone {
+        padding: 22px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .milestone .tag {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        background: var(--surface-2);
+        color: var(--muted);
+      }
+
+      .milestone .tag.done {
+        background: color-mix(in srgb, var(--ok) 16%, transparent);
+        color: var(--ok);
+      }
+
+      .milestone .tag.now {
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+
+      .milestone h3 {
+        margin: 14px 0 8px;
+        font-size: 17px;
+      }
+
+      .milestone ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .milestone li {
+        margin: 4px 0;
+      }
+
+      /* faq */
+      .faq {
+        max-width: 780px;
+        margin: 44px auto 0;
+      }
+
+      details {
+        border-bottom: 1px solid var(--border);
+      }
+
+      details:first-child {
+        border-top: 1px solid var(--border);
+      }
+
+      summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 20px 4px;
+        font-weight: 650;
+        font-size: 18px;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      summary::-webkit-details-marker {
+        display: none;
+      }
+
+      summary::after {
+        content: "+";
+        flex: none;
+        color: var(--faint);
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1;
+        transition: transform 0.2s ease;
+      }
+
+      details[open] summary::after {
+        transform: rotate(45deg);
+      }
+
+      details p {
+        margin: 0 4px 22px;
+        color: var(--muted);
+      }
+
+      /* code */
+      .terminal {
+        border-radius: var(--radius);
+        background: var(--code-bg);
+        color: var(--code-text);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .terminal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 16px;
+        border-bottom: 1px solid rgb(255 255 255 / 8%);
+        color: #8d8da3;
+        font-size: 13px;
+      }
+
+      .terminal-head button {
+        padding: 4px 10px;
+        border: 1px solid rgb(255 255 255 / 14%);
+        border-radius: 6px;
+        background: transparent;
+        color: #c9c9da;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .terminal-head button:hover {
+        background: rgb(255 255 255 / 8%);
+      }
+
+      .terminal code {
+        padding: 0;
+        background: none;
+        font-size: inherit;
+      }
+
+      .terminal pre {
+        margin: 0;
+        padding: 18px 20px;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 14.5px;
+        line-height: 1.75;
+      }
+
+      .terminal .c {
+        color: #7a7a92;
+      }
+
+      .terminal .p {
+        color: #a78bfa;
+        user-select: none;
+      }
+
+      .stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 24px;
+      }
+
+      .stack span {
+        padding: 5px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      /* final cta */
+      .final {
+        padding: 64px 32px;
+        border-radius: 24px;
+        background: var(--gradient);
+        color: #fff;
+        text-align: center;
+        box-shadow: 0 20px 60px rgb(80 70 255 / 30%);
+      }
+
+      .final h2 {
+        color: #fff;
+      }
+
+      .final p {
+        max-width: 560px;
+        margin: 14px auto 0;
+        opacity: 0.88;
+        font-size: 18px;
+      }
+
+      .final .cta {
+        margin-top: 30px;
+      }
+
+      .final .btn-light {
+        background: #fff;
+        color: #2a2370;
+      }
+
+      .final .btn-outline {
+        border-color: rgb(255 255 255 / 45%);
+        color: #fff;
+      }
+
+      footer {
+        padding: 40px 0 56px;
+        color: var(--faint);
+        font-size: 14px;
+      }
+
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 28px;
+      }
+
+      footer .logo {
+        font-size: 16px;
+        color: var(--text);
+      }
+
+      footer .logo img {
+        width: 24px;
+        height: 24px;
+      }
+
+      footer nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-left: auto;
+      }
+
+      footer a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        color: var(--text);
+      }
+
+      /* ---------- responsive ---------- */
+      @media (max-width: 960px) {
+        .features,
+        .steps {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .roadmap {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .split {
+          grid-template-columns: 1fr;
+          gap: 36px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        body {
+          font-size: 16px;
+        }
+        .wrap {
+          padding: 0 16px;
+        }
+        .nav-links {
+          display: none;
+        }
+        .nav .btn {
+          margin-left: auto;
+        }
+        .hero {
+          padding-top: 48px;
+        }
+        section {
+          padding: 68px 0;
+        }
+        .features,
+        .steps,
+        .roadmap {
+          grid-template-columns: 1fr;
+        }
+        .canvas {
+          padding: 12px;
+        }
+        .statusbar span:not(:first-child) {
+          display: none;
+        }
+        .cta .btn {
+          width: 100%;
+          justify-content: center;
+        }
+        .final {
+          padding: 48px 20px;
+          border-radius: 18px;
+        }
+        footer nav {
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Icons are referenced with <use href="#i-..."> -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol
+          id="i-select"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M5 3l14 8-6 1.5L10 19z" />
+        </symbol>
+        <symbol
+          id="i-arrow"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M5 19L19 5M10 5h9v9" />
+        </symbol>
+        <symbol
+          id="i-rect"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="4" y="5" width="16" height="14" rx="2" />
+        </symbol>
+        <symbol
+          id="i-ellipse"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <ellipse cx="12" cy="12" rx="9" ry="7" />
+        </symbol>
+        <symbol
+          id="i-line"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        >
+          <path d="M5 19L19 5" />
+        </symbol>
+        <symbol
+          id="i-pen"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M4 20l4-1L19 8l-3-3L5 16z" />
+          <path d="M14 7l3 3" />
+        </symbol>
+        <symbol
+          id="i-highlighter"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M9 15l-3 5h5l2-3" />
+          <path d="M9 15l7-11 4 3-7 10z" />
+        </symbol>
+        <symbol
+          id="i-text"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        >
+          <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+        </symbol>
+        <symbol
+          id="i-bubble"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        >
+          <path d="M4 5h16v11H11l-5 4v-4H4z" />
+        </symbol>
+        <symbol
+          id="i-step"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <path d="M10.5 9l2-1.5V16" />
+        </symbol>
+        <symbol id="i-pixelate" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="4" y="4" width="5" height="5" rx="1" />
+          <rect x="15" y="4" width="5" height="5" rx="1" opacity=".45" />
+          <rect x="9.5" y="9.5" width="5" height="5" rx="1" opacity=".7" />
+          <rect x="4" y="15" width="5" height="5" rx="1" opacity=".45" />
+          <rect x="15" y="15" width="5" height="5" rx="1" />
+        </symbol>
+        <symbol
+          id="i-blur"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        >
+          <path
+            d="M12 3c3.5 4.2 6 7.6 6 11a6 6 0 0 1-12 0c0-3.4 2.5-6.8 6-11z"
+          />
+          <path d="M9.5 14.5a2.5 2.5 0 0 0 2.5 2.5" />
+        </symbol>
+        <symbol
+          id="i-crop"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+          <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+        </symbol>
+        <symbol
+          id="i-undo"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M9 14L4 9l5-5" />
+          <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+        </symbol>
+        <symbol
+          id="i-redo"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 14l5-5-5-5" />
+          <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+        </symbol>
+        <symbol
+          id="i-capture"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+          <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+        </symbol>
+        <symbol
+          id="i-monitor"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="2" y="4" width="13" height="10" rx="1.5" />
+          <rect x="15" y="7" width="7" height="9" rx="1.5" />
+          <path d="M6 20h5M8.5 14v6" />
+        </symbol>
+        <symbol
+          id="i-clipboard"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="5" y="4" width="14" height="17" rx="2" />
+          <path d="M9 4V3h6v1M9 11h6M9 15h4" />
+        </symbol>
+        <symbol
+          id="i-gallery"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="3" y="3" width="8" height="8" rx="1.5" />
+          <rect x="13" y="3" width="8" height="8" rx="1.5" />
+          <rect x="3" y="13" width="8" height="8" rx="1.5" />
+          <rect x="13" y="13" width="8" height="8" rx="1.5" />
+        </symbol>
+        <symbol
+          id="i-keyboard"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="2" y="6" width="20" height="12" rx="2" />
+          <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+        </symbol>
+        <symbol
+          id="i-refresh"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+          <path d="M4 3v5h5" />
+          <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+          <path d="M20 21v-5h-5" />
+        </symbol>
+        <symbol
+          id="i-zoom"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        >
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="M20 20l-4.8-4.8M10.5 8v5M8 10.5h5" />
+        </symbol>
+        <symbol
+          id="i-shield"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" />
+          <path d="M8.5 12l2.5 2.5 4.5-5" />
+        </symbol>
+        <symbol
+          id="i-terminal"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M7 9l3 3-3 3M13 15h4" />
+        </symbol>
+        <symbol
+          id="i-download"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+        </symbol>
+        <symbol id="i-github" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2z"
+          />
+        </symbol>
+        <symbol id="i-windows" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M3 5.5l7.5-1v7H3zM11.5 4.3L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.3z"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="nav">
+      <div class="wrap">
+        <a class="logo" href="#top"><img src="icon.svg" alt="" />Snipit</a>
+        <nav class="nav-links" aria-label="Sections">
+          <a href="#features">Features</a>
+          <a href="#editor">Editor</a>
+          <a href="#shortcuts">Shortcuts</a>
+          <a href="#roadmap">Roadmap</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a
+          class="btn btn-ghost btn-sm"
+          href="https://github.com/parthh37/snipit"
+        >
+          <svg><use href="#i-github" /></svg>GitHub
+        </a>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ================= HERO ================= -->
+      <div class="hero">
+        <div class="wrap">
+          <span class="pill"
+            ><b>v0.1</b> Free &amp; open source · Windows 10 / 11</span
+          >
+          <h1>Capture. Annotate. <span class="grad">Share.</span></h1>
+          <p class="lede">
+            Press <kbd>PrtSc</kbd>, drag over anything on screen, mark it up
+            with arrows, boxes, steps and blur — then paste it straight into
+            chat, docs or a bug report.
+          </p>
+          <div class="cta">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/parthh37/snipit/releases"
+            >
+              <svg><use href="#i-windows" /></svg>Download for Windows
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/parthh37/snipit">
+              <svg><use href="#i-github" /></svg>Star on GitHub
+            </a>
+          </div>
+          <p class="fineprint">
+            No account. No admin rights. Updates itself. MIT licensed.
+          </p>
+
+          <!-- app mockup -->
+          <div class="stage">
+            <div
+              class="window"
+              role="img"
+              aria-label="The Snipit editor with an annotated screenshot: a red box and arrow pointing at an Export button, numbered steps, a text bubble and a pixelated email address."
+            >
+              <div class="titlebar">
+                <img src="icon.svg" alt="" />
+                Snipit — Editor
+                <div class="controls" aria-hidden="true">
+                  <span>&#8211;</span><span>&#9633;</span><span>&#10005;</span>
+                </div>
+              </div>
+              <div class="toolbar" aria-hidden="true">
+                <span class="tool"
+                  ><svg><use href="#i-select" /></svg
+                ></span>
+                <span class="tool on"
+                  ><svg><use href="#i-arrow" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-rect" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-ellipse" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-line" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-pen" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-highlighter" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-text" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-bubble" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-step" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-pixelate" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-blur" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-crop" /></svg
+                ></span>
+                <span class="sep"></span>
+                <span class="swatch on" style="background: #ef4444"></span>
+                <span class="swatch" style="background: #f97316"></span>
+                <span class="swatch" style="background: #facc15"></span>
+                <span class="swatch" style="background: #22c55e"></span>
+                <span class="swatch" style="background: #3b82f6"></span>
+                <span class="spacer"></span>
+                <span class="tool"
+                  ><svg><use href="#i-undo" /></svg
+                ></span>
+                <span class="tool"
+                  ><svg><use href="#i-redo" /></svg
+                ></span>
+                <span class="copy-btn">Copy</span>
+              </div>
+              <div class="canvas">
+                <svg
+                  viewBox="0 0 900 470"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                  font-family="Segoe UI, system-ui, sans-serif"
+                >
+                  <!-- the "captured" screenshot: a fictional analytics app -->
+                  <rect width="900" height="470" fill="#ffffff" />
+                  <rect width="900" height="52" fill="#f6f7fb" />
+                  <rect x="0" y="52" width="900" height="1" fill="#e6e7ef" />
+                  <circle cx="30" cy="26" r="11" fill="#c7d2fe" />
+                  <rect
+                    x="50"
+                    y="20"
+                    width="96"
+                    height="12"
+                    rx="6"
+                    fill="#d7d9e6"
+                  />
+                  <rect
+                    x="560"
+                    y="18"
+                    width="200"
+                    height="16"
+                    rx="8"
+                    fill="#eceef5"
+                  />
+                  <circle cx="860" cy="26" r="13" fill="#e0e3ee" />
+                  <!-- sidebar -->
+                  <rect x="0" y="53" width="180" height="417" fill="#fafbfd" />
+                  <rect x="180" y="53" width="1" height="417" fill="#eceef4" />
+                  <rect
+                    x="16"
+                    y="78"
+                    width="148"
+                    height="30"
+                    rx="7"
+                    fill="#eef0ff"
+                  />
+                  <rect
+                    x="30"
+                    y="89"
+                    width="80"
+                    height="9"
+                    rx="4.5"
+                    fill="#8b93f5"
+                  />
+                  <rect
+                    x="30"
+                    y="128"
+                    width="96"
+                    height="9"
+                    rx="4.5"
+                    fill="#d7d9e6"
+                  />
+                  <rect
+                    x="30"
+                    y="160"
+                    width="70"
+                    height="9"
+                    rx="4.5"
+                    fill="#d7d9e6"
+                  />
+                  <rect
+                    x="30"
+                    y="192"
+                    width="104"
+                    height="9"
+                    rx="4.5"
+                    fill="#d7d9e6"
+                  />
+                  <rect
+                    x="30"
+                    y="224"
+                    width="62"
+                    height="9"
+                    rx="4.5"
+                    fill="#d7d9e6"
+                  />
+                  <!-- heading + button row -->
+                  <rect
+                    x="212"
+                    y="80"
+                    width="190"
+                    height="18"
+                    rx="9"
+                    fill="#2b2d42"
+                  />
+                  <rect
+                    x="212"
+                    y="110"
+                    width="290"
+                    height="10"
+                    rx="5"
+                    fill="#b9bccd"
+                  />
+                  <rect
+                    x="704"
+                    y="78"
+                    width="164"
+                    height="40"
+                    rx="9"
+                    fill="#4f5bff"
+                  />
+                  <text
+                    x="786"
+                    y="104"
+                    fill="#ffffff"
+                    font-size="15"
+                    font-weight="600"
+                    text-anchor="middle"
+                  >
+                    Export report
+                  </text>
+                  <!-- stat cards -->
+                  <g>
+                    <rect
+                      x="212"
+                      y="144"
+                      width="208"
+                      height="90"
+                      rx="10"
+                      fill="#ffffff"
+                      stroke="#e6e7ef"
+                    />
+                    <rect
+                      x="230"
+                      y="162"
+                      width="70"
+                      height="8"
+                      rx="4"
+                      fill="#c4c7d6"
+                    />
+                    <text
+                      x="230"
+                      y="208"
+                      fill="#1f2033"
+                      font-size="28"
+                      font-weight="700"
+                    >
+                      12,480
+                    </text>
+                    <rect
+                      x="436"
+                      y="144"
+                      width="208"
+                      height="90"
+                      rx="10"
+                      fill="#ffffff"
+                      stroke="#e6e7ef"
+                    />
+                    <rect
+                      x="454"
+                      y="162"
+                      width="84"
+                      height="8"
+                      rx="4"
+                      fill="#c4c7d6"
+                    />
+                    <text
+                      x="454"
+                      y="208"
+                      fill="#1f2033"
+                      font-size="28"
+                      font-weight="700"
+                    >
+                      3.2%
+                    </text>
+                    <rect
+                      x="660"
+                      y="144"
+                      width="208"
+                      height="90"
+                      rx="10"
+                      fill="#ffffff"
+                      stroke="#e6e7ef"
+                    />
+                    <rect
+                      x="678"
+                      y="162"
+                      width="60"
+                      height="8"
+                      rx="4"
+                      fill="#c4c7d6"
+                    />
+                    <text
+                      x="678"
+                      y="208"
+                      fill="#1f2033"
+                      font-size="28"
+                      font-weight="700"
+                    >
+                      $8.9k
+                    </text>
+                  </g>
+                  <!-- chart -->
+                  <rect
+                    x="212"
+                    y="252"
+                    width="432"
+                    height="196"
+                    rx="10"
+                    fill="#ffffff"
+                    stroke="#e6e7ef"
+                  />
+                  <rect
+                    x="230"
+                    y="270"
+                    width="110"
+                    height="9"
+                    rx="4.5"
+                    fill="#c4c7d6"
+                  />
+                  <g fill="#c7cdfb">
+                    <rect x="240" y="370" width="26" height="58" rx="4" />
+                    <rect x="282" y="340" width="26" height="88" rx="4" />
+                    <rect x="324" y="356" width="26" height="72" rx="4" />
+                    <rect x="366" y="318" width="26" height="110" rx="4" />
+                    <rect x="408" y="332" width="26" height="96" rx="4" />
+                    <rect
+                      x="450"
+                      y="300"
+                      width="26"
+                      height="128"
+                      rx="4"
+                      fill="#6c74ff"
+                    />
+                    <rect x="492" y="322" width="26" height="106" rx="4" />
+                    <rect x="534" y="346" width="26" height="82" rx="4" />
+                    <rect x="576" y="312" width="26" height="116" rx="4" />
+                  </g>
+                  <!-- account card -->
+                  <rect
+                    x="660"
+                    y="252"
+                    width="208"
+                    height="196"
+                    rx="10"
+                    fill="#ffffff"
+                    stroke="#e6e7ef"
+                  />
+                  <circle cx="696" cy="290" r="18" fill="#fde68a" />
+                  <rect
+                    x="724"
+                    y="280"
+                    width="90"
+                    height="9"
+                    rx="4.5"
+                    fill="#2b2d42"
+                  />
+                  <rect
+                    x="724"
+                    y="296"
+                    width="60"
+                    height="8"
+                    rx="4"
+                    fill="#c4c7d6"
+                  />
+                  <text x="678" y="342" fill="#5b5e74" font-size="13">
+                    Billing email
+                  </text>
+                  <!-- pixelated email (annotation) -->
+                  <g class="pop" style="--d: 1.9s">
+                    <rect
+                      x="678"
+                      y="352"
+                      width="172"
+                      height="28"
+                      rx="3"
+                      fill="#9aa0b8"
+                    />
+                    <g opacity=".9">
+                      <rect
+                        x="678"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#7f86a3"
+                      />
+                      <rect
+                        x="706"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#b4b9cc"
+                      />
+                      <rect
+                        x="734"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#878ea9"
+                      />
+                      <rect
+                        x="762"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#a9afc4"
+                      />
+                      <rect
+                        x="790"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#7c839f"
+                      />
+                      <rect
+                        x="818"
+                        y="352"
+                        width="14"
+                        height="14"
+                        fill="#b8bdcf"
+                      />
+                      <rect
+                        x="692"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#b0b5c9"
+                      />
+                      <rect
+                        x="720"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#7d84a0"
+                      />
+                      <rect
+                        x="748"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#a3a9bf"
+                      />
+                      <rect
+                        x="776"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#868da8"
+                      />
+                      <rect
+                        x="804"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#adb2c7"
+                      />
+                      <rect
+                        x="832"
+                        y="366"
+                        width="14"
+                        height="14"
+                        fill="#8289a4"
+                      />
+                    </g>
+                  </g>
+                  <rect
+                    x="678"
+                    y="398"
+                    width="172"
+                    height="32"
+                    rx="7"
+                    fill="#f1f2f8"
+                  />
+                  <rect
+                    x="700"
+                    y="410"
+                    width="90"
+                    height="8"
+                    rx="4"
+                    fill="#b9bccd"
+                  />
+
+                  <!-- ============ annotations ============ -->
+                  <!-- highlighter over the subtitle -->
+                  <path
+                    class="draw"
+                    style="--len: 300; --d: 0.2s; mix-blend-mode: multiply"
+                    d="M210 115 H506"
+                    stroke="#facc15"
+                    stroke-width="20"
+                    stroke-linecap="round"
+                    opacity=".6"
+                    fill="none"
+                  />
+                  <!-- red box around export button -->
+                  <rect
+                    class="draw"
+                    style="--len: 460; --d: 0.5s"
+                    x="694"
+                    y="68"
+                    width="184"
+                    height="60"
+                    rx="10"
+                    fill="none"
+                    stroke="#ef4444"
+                    stroke-width="4"
+                  />
+                  <!-- arrow to the button -->
+                  <path
+                    class="draw"
+                    style="--len: 300; --d: 0.9s"
+                    d="M560 205 C 610 190, 650 160, 686 118"
+                    fill="none"
+                    stroke="#ef4444"
+                    stroke-width="5"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    class="pop"
+                    style="--d: 1.45s"
+                    d="M690 112 L667 120 L684 134 Z"
+                    fill="#ef4444"
+                    stroke="#ef4444"
+                    stroke-width="3"
+                    stroke-linejoin="round"
+                  />
+                  <!-- text bubble -->
+                  <g class="pop" style="--d: 1.2s">
+                    <path
+                      d="M418 172 h150 a10 10 0 0 1 10 10 v32 a10 10 0 0 1 -10 10 h-104 l-16 16 v-16 h-30 a10 10 0 0 1 -10 -10 v-32 a10 10 0 0 1 10 -10 z"
+                      fill="#ef4444"
+                    />
+                    <text
+                      x="493"
+                      y="204"
+                      fill="#ffffff"
+                      font-size="16"
+                      font-weight="700"
+                      text-anchor="middle"
+                    >
+                      Click Export
+                    </text>
+                  </g>
+                  <!-- step badges -->
+                  <g class="pop" style="--d: 1.55s">
+                    <circle
+                      cx="694"
+                      cy="68"
+                      r="16"
+                      fill="#ef4444"
+                      stroke="#ffffff"
+                      stroke-width="3"
+                    />
+                    <text
+                      x="694"
+                      y="74"
+                      fill="#ffffff"
+                      font-size="17"
+                      font-weight="800"
+                      text-anchor="middle"
+                    >
+                      1
+                    </text>
+                  </g>
+                  <!-- ellipse around tallest bar -->
+                  <ellipse
+                    class="draw"
+                    style="--len: 360; --d: 1.6s"
+                    cx="463"
+                    cy="352"
+                    rx="38"
+                    ry="74"
+                    fill="none"
+                    stroke="#3b82f6"
+                    stroke-width="4"
+                  />
+                  <g class="pop" style="--d: 1.8s">
+                    <circle
+                      cx="498"
+                      cy="286"
+                      r="16"
+                      fill="#3b82f6"
+                      stroke="#ffffff"
+                      stroke-width="3"
+                    />
+                    <text
+                      x="498"
+                      y="292"
+                      fill="#ffffff"
+                      font-size="17"
+                      font-weight="800"
+                      text-anchor="middle"
+                    >
+                      2
+                    </text>
+                  </g>
+                </svg>
+              </div>
+              <div class="statusbar" aria-hidden="true">
+                <span>1920 × 1080</span>
+                <span>Arrow (A) · drag to draw</span>
+                <span>Fit · 47%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= HOW IT WORKS ================= -->
+      <section id="how">
+        <div class="wrap">
+          <div class="center">
+            <div class="eyebrow">How it works</div>
+            <h2>From screen to shared in seconds</h2>
+            <p class="section-lede">
+              Snipit waits quietly in your system tray. When you need it, one
+              key gets you from “look at this” to a clear, annotated image.
+            </p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <h3>Press <kbd>PrtSc</kbd></h3>
+              <p>
+                The screen freezes on every monitor. Drag a region or click a
+                window — the magnifier loupe helps you land on the exact pixel.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <h3>Mark it up</h3>
+              <p>
+                The editor opens with your capture. Point with arrows, number
+                the steps, add a callout and blur anything private.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <h3>Copy &amp; paste</h3>
+              <p>
+                Hit <kbd>Ctrl</kbd>+<kbd>C</kbd> and drop it into Slack, Teams,
+                email or a ticket. It’s also saved to your gallery
+                automatically.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FEATURES ================= -->
+      <section id="features" class="alt">
+        <div class="wrap">
+          <div class="eyebrow">Features</div>
+          <h2>Everything you need, nothing in the way</h2>
+          <p class="section-lede">
+            A fast native app built with Rust and Tauri — small download, low
+            memory, starts instantly.
+          </p>
+          <div class="features">
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-capture" /></svg>
+              </div>
+              <h3>Region &amp; window capture</h3>
+              <p>
+                Freeze-frame overlay with a magnifier loupe and live size
+                readout. Hover to highlight a window, click to grab it.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-monitor" /></svg>
+              </div>
+              <h3>Multi-monitor aware</h3>
+              <p>
+                Works across all your displays, including mixed DPI setups.
+                <kbd>Shift</kbd>+<kbd>PrtSc</kbd>
+                grabs the current monitor in one go.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-pen" /></svg>
+              </div>
+              <h3>13 annotation tools</h3>
+              <p>
+                Arrows, shapes, pen, highlighter, text, callouts and
+                auto-numbered steps — each one a single keystroke away.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-pixelate" /></svg>
+              </div>
+              <h3>Blur &amp; pixelate</h3>
+              <p>
+                Hide emails, tokens and faces before you share. Drag over the
+                sensitive part and it’s gone.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-crop" /></svg>
+              </div>
+              <h3>Non-destructive editing</h3>
+              <p>
+                Crop is undoable, and your original capture is never
+                overwritten. Export is pixel-exact at the original size.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-zoom" /></svg>
+              </div>
+              <h3>Zoom &amp; pan</h3>
+              <p>
+                <kbd>Ctrl</kbd>+scroll to zoom, hold <kbd>Space</kbd> or
+                middle-drag to pan. Fit to window or jump to 100%.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-clipboard" /></svg>
+              </div>
+              <h3>Clipboard first</h3>
+              <p>
+                Copy the annotated result with one shortcut — or paste any image
+                from the clipboard and annotate that instead.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-gallery" /></svg>
+              </div>
+              <h3>Auto-saved gallery</h3>
+              <p>
+                Every capture lands as a PNG in <code>Pictures\Snipit</code>.
+                Browse, reopen, copy or delete from the built-in gallery.
+              </p>
+            </div>
+            <div class="feature">
+              <div class="icon">
+                <svg><use href="#i-refresh" /></svg>
+              </div>
+              <h3>Always up to date</h3>
+              <p>
+                Signed automatic updates from GitHub Releases. Per-user install
+                — no admin prompt, no IT ticket.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= EDITOR TOOLS ================= -->
+      <section id="editor">
+        <div class="wrap">
+          <div class="center">
+            <div class="eyebrow">The editor</div>
+            <h2>One key per tool</h2>
+            <p class="section-lede">
+              Switch tools without reaching for the mouse. Pick a color and
+              size, and toggle filled shapes from the toolbar.
+            </p>
+          </div>
+          <div class="tools">
+            <div class="tool-card">
+              <svg><use href="#i-select" /></svg>Select<kbd>V</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-arrow" /></svg>Arrow<kbd>A</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-rect" /></svg>Rectangle<kbd>R</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-ellipse" /></svg>Ellipse<kbd>E</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-line" /></svg>Line<kbd>L</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-pen" /></svg>Pen<kbd>P</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-highlighter" /></svg>Highlighter<kbd>H</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-text" /></svg>Text<kbd>T</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-bubble" /></svg>Text bubble<kbd>B</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-step" /></svg>Step number<kbd>N</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-pixelate" /></svg>Pixelate<kbd>X</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-blur" /></svg>Blur<kbd>U</kbd>
+            </div>
+            <div class="tool-card">
+              <svg><use href="#i-crop" /></svg>Crop<kbd>C</kbd>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SHORTCUTS ================= -->
+      <section id="shortcuts" class="alt">
+        <div class="wrap split">
+          <div>
+            <div class="eyebrow">Keyboard first</div>
+            <h2>Stays out of your way until you need it</h2>
+            <p class="section-lede">
+              Snipit starts with Windows and lives in the tray. Every shortcut
+              can be rebound in Settings.
+            </p>
+            <ul class="checklist">
+              <li>
+                <b>Rebindable hotkeys</b> — if Snagit, ShareX or Snipping Tool
+                already owns <kbd>PrtSc</kbd>, Snipit tells you and lets you
+                pick another key.
+              </li>
+              <li>
+                <b>Your choice after capture</b> — open the editor (default) or
+                send straight to the clipboard.
+              </li>
+              <li>
+                <b>Scriptable</b> — <code>snipit --capture</code> and
+                <code>snipit --capture-fullscreen</code> for launchers and
+                macros.
+              </li>
+            </ul>
+          </div>
+          <table class="shortcuts">
+            <tbody>
+              <tr>
+                <td>Region or window</td>
+                <td><kbd>PrtSc</kbd></td>
+              </tr>
+              <tr>
+                <td>Full screen (current monitor)</td>
+                <td><kbd>Shift</kbd> + <kbd>PrtSc</kbd></td>
+              </tr>
+              <tr>
+                <td>Full screen from the overlay</td>
+                <td><kbd>F</kbd></td>
+              </tr>
+              <tr>
+                <td>Cancel capture</td>
+                <td><kbd>Esc</kbd> or right-click</td>
+              </tr>
+              <tr>
+                <td>Annotate the clipboard image</td>
+                <td><kbd>Ctrl</kbd> + <kbd>V</kbd></td>
+              </tr>
+              <tr>
+                <td>Copy result</td>
+                <td><kbd>Ctrl</kbd> + <kbd>C</kbd></td>
+              </tr>
+              <tr>
+                <td>Save to gallery</td>
+                <td><kbd>Ctrl</kbd> + <kbd>S</kbd></td>
+              </tr>
+              <tr>
+                <td>Undo / redo</td>
+                <td><kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Y</kbd></td>
+              </tr>
+              <tr>
+                <td>Fit / actual size</td>
+                <td><kbd>Ctrl</kbd> + <kbd>0</kbd> / <kbd>1</kbd></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================= ROADMAP ================= -->
+      <section id="roadmap">
+        <div class="wrap">
+          <div class="eyebrow">Roadmap</div>
+          <h2>Just getting started</h2>
+          <p class="section-lede">
+            Snipit is in early, active development. Capture and editing work
+            today — here’s what’s coming next.
+          </p>
+          <div class="roadmap">
+            <div class="milestone">
+              <span class="tag done">Shipped</span>
+              <h3>Capture &amp; edit</h3>
+              <ul>
+                <li>Region, window, full screen</li>
+                <li>13 annotation tools</li>
+                <li>Blur, pixelate, crop</li>
+                <li>Gallery &amp; auto-update</li>
+              </ul>
+            </div>
+            <div class="milestone">
+              <span class="tag now">Up next</span>
+              <h3>Workflow</h3>
+              <ul>
+                <li><code>.snip</code> project files</li>
+                <li>Export PNG / JPG / WebP / PDF</li>
+                <li>Delayed &amp; repeat capture</li>
+                <li>Gallery search &amp; tags</li>
+              </ul>
+            </div>
+            <div class="milestone">
+              <span class="tag">Planned</span>
+              <h3>Video</h3>
+              <ul>
+                <li>Screen recording to MP4</li>
+                <li>System audio + mic</li>
+                <li>Trim, pause / resume</li>
+                <li>GIF export</li>
+              </ul>
+            </div>
+            <div class="milestone">
+              <span class="tag">Planned</span>
+              <h3>Advanced</h3>
+              <ul>
+                <li>Scrolling capture</li>
+                <li>OCR text capture</li>
+                <li>Color picker</li>
+                <li>Share integrations</li>
+              </ul>
+            </div>
+          </div>
+          <p style="margin-top: 24px; color: var(--muted)">
+            Follow along in the
+            <a
+              href="https://github.com/parthh37/snipit/blob/main/docs/ROADMAP.md"
+              >full roadmap</a
+            >
+            — macOS and Linux are on the list too.
+          </p>
+        </div>
+      </section>
+
+      <!-- ================= OPEN SOURCE ================= -->
+      <section id="source" class="alt">
+        <div class="wrap split">
+          <div>
+            <div class="eyebrow">Open source</div>
+            <h2>Built in the open</h2>
+            <p class="section-lede">
+              Snipit is MIT licensed. Read the code, file an issue, or build it
+              yourself — you need Node.js 22+ and the Rust toolchain.
+            </p>
+            <div class="stack">
+              <span>Tauri 2</span><span>Rust</span><span>React</span
+              ><span>TypeScript</span><span>Konva.js</span><span>Vite</span>
+            </div>
+            <div class="cta" style="justify-content: flex-start">
+              <a
+                class="btn btn-ghost"
+                href="https://github.com/parthh37/snipit"
+              >
+                <svg><use href="#i-github" /></svg>View source
+              </a>
+              <a
+                class="btn btn-ghost"
+                href="https://github.com/parthh37/snipit/issues"
+                >Report an issue</a
+              >
+            </div>
+          </div>
+          <div class="terminal">
+            <div class="terminal-head">
+              <span>Build from source</span>
+              <button
+                type="button"
+                data-copy="git clone https://github.com/parthh37/snipit.git&#10;cd snipit&#10;npm install&#10;npm run tauri dev"
+              >
+                Copy
+              </button>
+            </div>
+            <pre><code><span class="p">$ </span>git clone https://github.com/parthh37/snipit.git
+<span class="p">$ </span>cd snipit
+<span class="p">$ </span>npm install
+<span class="p">$ </span>npm run tauri dev     <span class="c"># run with hot reload</span>
+<span class="p">$ </span>npm run tauri build   <span class="c"># build the installers</span></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FAQ ================= -->
+      <section id="faq">
+        <div class="wrap">
+          <div class="center">
+            <div class="eyebrow">FAQ</div>
+            <h2>Questions</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Is Snipit really free?</summary>
+              <p>
+                Yes. It’s open source under the MIT license — no trial, no
+                watermark, no account.
+              </p>
+            </details>
+            <details>
+              <summary>Windows says “Windows protected your PC”.</summary>
+              <p>
+                The installer isn’t code-signed yet, so SmartScreen warns about
+                it. Click
+                <b>More info → Run anyway</b>. Code signing is on the roadmap.
+              </p>
+            </details>
+            <details>
+              <summary>Pressing PrtSc doesn’t open Snipit.</summary>
+              <p>
+                Windows or another tool has claimed the key. Turn off
+                <b
+                  >Settings → Accessibility → Keyboard → Use the Print screen
+                  key to open screen capture</b
+                >, or close the other screenshot tool — or simply choose a
+                different shortcut in Snipit’s Settings. Snipit shows a notice
+                when this happens.
+              </p>
+            </details>
+            <details>
+              <summary>Where are my captures saved?</summary>
+              <p>
+                In <code>Pictures\Snipit</code> as PNG files. Editing never
+                overwrites the original capture.
+              </p>
+            </details>
+            <details>
+              <summary>Does it need admin rights?</summary>
+              <p>
+                No. The setup installs for your user only and adds WebView2 if
+                it’s missing. An
+                <code>.msi</code> is also provided for managed / IT deployments.
+              </p>
+            </details>
+            <details>
+              <summary>What about macOS and Linux?</summary>
+              <p>
+                Windows comes first. Snipit is built on Tauri, so macOS and
+                Linux builds are planned.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FINAL CTA ================= -->
+      <section style="padding-top: 0">
+        <div class="wrap">
+          <div class="final">
+            <h2>Your next screenshot, but clearer</h2>
+            <p>
+              Download Snipit, press PrtSc, and see how fast explaining things
+              can be.
+            </p>
+            <div class="cta">
+              <a
+                class="btn btn-light"
+                href="https://github.com/parthh37/snipit/releases"
+              >
+                <svg><use href="#i-download" /></svg>Download for Windows
+              </a>
+              <a
+                class="btn btn-outline"
+                href="https://github.com/parthh37/snipit"
+              >
+                <svg><use href="#i-github" /></svg>View on GitHub
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <a class="logo" href="#top"><img src="icon.svg" alt="" />Snipit</a>
+        <span>MIT License · Made with Tauri</span>
+        <nav aria-label="Footer">
+          <a href="https://github.com/parthh37/snipit">GitHub</a>
+          <a href="https://github.com/parthh37/snipit/releases">Releases</a>
+          <a href="https://github.com/parthh37/snipit/blob/main/docs/ROADMAP.md"
+            >Roadmap</a
+          >
+          <a href="https://github.com/parthh37/snipit/issues">Issues</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      for (const btn of document.querySelectorAll("[data-copy]")) {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.copy);
+            btn.textContent = "Copied";
+          } catch {
+            btn.textContent = "Press Ctrl+C";
+          }
+          setTimeout(() => (btn.textContent = "Copy"), 1600);
+        });
+      }
+    </script>
+  </body>
+</html>
