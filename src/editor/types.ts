@@ -9,7 +9,9 @@ export type Tool =
   | "text"
   | "callout"
   | "step"
-  | "pixelate";
+  | "pixelate"
+  | "blur"
+  | "crop";
 
 /** Common to every annotation: a position (image pixels) plus the transformer's edits. */
 interface Base {
@@ -64,11 +66,12 @@ export interface StepShape extends Base {
   radius: number;
 }
 
-export interface PixelateShape extends Base {
-  type: "pixelate";
+/** Hides what is underneath: pixel blocks or a blur, `amount` image pixels strong. */
+export interface ObscureShape extends Base {
+  type: "pixelate" | "blur";
   width: number;
   height: number;
-  pixelSize: number;
+  amount: number;
 }
 
 export interface ImageShape extends Base {
@@ -84,11 +87,26 @@ export type Shape =
   | TextShape
   | CalloutShape
   | StepShape
-  | PixelateShape
+  | ObscureShape
   | ImageShape;
 
 export type ShapePatch = Partial<Omit<Shape, "id" | "type">> &
   Record<string, unknown>;
+
+/** An axis-aligned area of the image, in image pixels. */
+export interface Area {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What undo/redo steps through: the annotations plus the non-destructive crop. */
+export interface DocState {
+  shapes: Shape[];
+  /** `null` shows the whole image. */
+  crop: Area | null;
+}
 
 export const FONT_FAMILY =
   '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif';

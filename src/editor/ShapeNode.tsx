@@ -17,7 +17,7 @@ import {
   TEXT_LINE_HEIGHT,
   contrastText,
   type CalloutShape,
-  type PixelateShape,
+  type ObscureShape,
   type Shape,
   type ShapePatch,
 } from "./types";
@@ -38,6 +38,7 @@ const BAKES_SCALE = new Set<Shape["type"]>([
   "rect",
   "ellipse",
   "pixelate",
+  "blur",
   "image",
   "callout",
 ]);
@@ -78,8 +79,8 @@ export default function ShapeNode({
   };
 
   const onDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    // Keep the pixelated area showing what is underneath while it moves.
-    if (shape.type !== "pixelate") return;
+    // Keep the pixelated/blurred area showing what is underneath while it moves.
+    if (shape.type !== "pixelate" && shape.type !== "blur") return;
     const group = e.target;
     if (!(group instanceof Konva.Group)) return;
     const image = group.findOne<Konva.Image>("Image");
@@ -238,7 +239,8 @@ function ShapeBody({
         </>
       );
     case "pixelate":
-      return <Pixelated shape={shape} background={background} />;
+    case "blur":
+      return <Obscured shape={shape} background={background} />;
     case "image":
       return (
         <KImage image={shape.image} width={shape.width} height={shape.height} />
@@ -332,17 +334,19 @@ function Callout({
   );
 }
 
-function Pixelated({
+function Obscured({
   shape,
   background,
 }: {
-  shape: PixelateShape;
+  shape: ObscureShape;
   background: HTMLImageElement;
 }) {
   const ref = useRef<Konva.Image>(null);
   useEffect(() => {
     if (shape.width >= 1 && shape.height >= 1) ref.current?.cache();
-  }, [shape.x, shape.y, shape.width, shape.height, shape.pixelSize]);
+  }, [shape.x, shape.y, shape.width, shape.height, shape.amount, shape.type]);
+
+  const blur = shape.type === "blur";
 
   return (
     <KImage
@@ -356,8 +360,9 @@ function Pixelated({
       }}
       width={shape.width}
       height={shape.height}
-      filters={[Konva.Filters.Pixelate]}
-      pixelSize={shape.pixelSize}
+      filters={[blur ? Konva.Filters.Blur : Konva.Filters.Pixelate]}
+      pixelSize={blur ? undefined : shape.amount}
+      blurRadius={blur ? shape.amount : undefined}
     />
   );
 }

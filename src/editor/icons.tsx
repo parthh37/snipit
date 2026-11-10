@@ -75,6 +75,17 @@ const toolIcons: Record<Tool, ReactNode> = {
       <path d="M4 4h5v5H4zM15 4h5v5h-5zM9.5 9.5h5v5h-5zM4 15h5v5H4zM15 15h5v5h-5z" />
     </Svg>
   ),
+  blur: (
+    <Svg>
+      <path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z" />
+      <path d="M9.5 15a2.5 2.5 0 002.5 2.5" />
+    </Svg>
+  ),
+  crop: (
+    <Svg>
+      <path d="M6 2v14a2 2 0 002 2h14M2 6h14a2 2 0 012 2v14" />
+    </Svg>
+  ),
 };
 
 export function ToolIcon({ tool }: { tool: Tool }) {
@@ -109,6 +120,32 @@ export const SaveIcon = () => (
 export const PasteIcon = () => (
   <Svg>
     <path d="M9 4h6v3H9zM9 5H6v15h12V5h-3" />
+  </Svg>
+);
+
+export const ZoomInIcon = () => (
+  <Svg>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M20 20l-4-4M8 11h6M11 8v6" />
+  </Svg>
+);
+
+export const ZoomOutIcon = () => (
+  <Svg>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M20 20l-4-4M8 11h6" />
+  </Svg>
+);
+
+export const FitIcon = () => (
+  <Svg>
+    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+  </Svg>
+);
+
+export const CheckIcon = () => (
+  <Svg>
+    <path d="M5 12l5 5 9-10" />
   </Svg>
 );
 
