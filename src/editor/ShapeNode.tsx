@@ -17,6 +17,7 @@ import {
   TEXT_LINE_HEIGHT,
   contrastText,
   type CalloutShape,
+  type LineStyle,
   type ObscureShape,
   type Shape,
   type ShapePatch,
@@ -138,9 +139,19 @@ function ShapeBody({
           stroke={shape.filled ? undefined : shape.stroke}
           fill={shape.filled ? shape.stroke : undefined}
           strokeWidth={shape.strokeWidth}
-          cornerRadius={shape.strokeWidth}
+          cornerRadius={
+            shape.rounded
+              ? Math.min(
+                  shape.strokeWidth * 4,
+                  shape.width / 2,
+                  shape.height / 2,
+                )
+              : shape.strokeWidth
+          }
           hitStrokeWidth={Math.max(12, shape.strokeWidth)}
           fillEnabled={shape.filled}
+          opacity={shape.opacity ?? 1}
+          {...(!shape.filled && dashProps(shape.dash, shape.strokeWidth))}
         />
       );
     case "ellipse":
@@ -155,6 +166,8 @@ function ShapeBody({
           strokeWidth={shape.strokeWidth}
           hitStrokeWidth={Math.max(12, shape.strokeWidth)}
           fillEnabled={shape.filled}
+          opacity={shape.opacity ?? 1}
+          {...(!shape.filled && dashProps(shape.dash, shape.strokeWidth))}
         />
       );
     case "arrow":
@@ -166,9 +179,13 @@ function ShapeBody({
           strokeWidth={shape.strokeWidth}
           pointerLength={shape.strokeWidth * 3.5}
           pointerWidth={shape.strokeWidth * 3.5}
+          pointerAtBeginning={!!shape.bothEnds}
           lineCap="round"
           lineJoin="round"
           hitStrokeWidth={Math.max(16, shape.strokeWidth * 2)}
+          // A see-through arrow is drawn as one piece, so the head and shaft don't overlap.
+          opacity={shape.opacity ?? 1}
+          {...dashProps(shape.dash, shape.strokeWidth, true)}
         />
       );
     case "line":
@@ -182,6 +199,8 @@ function ShapeBody({
           lineJoin="round"
           tension={shape.type === "pen" ? 0.4 : 0}
           hitStrokeWidth={Math.max(16, shape.strokeWidth * 2)}
+          opacity={shape.opacity ?? 1}
+          {...dashProps(shape.dash, shape.strokeWidth, true)}
         />
       );
     case "highlighter":
@@ -245,6 +264,33 @@ function ShapeBody({
       return (
         <KImage image={shape.image} width={shape.width} height={shape.height} />
       );
+  }
+}
+
+/**
+ * Konva props for a dashed or dotted stroke. Round caps grow each dash by a stroke width,
+ * so `roundCap` strokes get shorter dashes and longer gaps to look the same.
+ */
+function dashProps(
+  style: LineStyle | undefined,
+  width: number,
+  roundCap = false,
+) {
+  switch (style) {
+    case "dashed":
+      return {
+        dash: roundCap ? [width * 2, width * 3] : [width * 3, width * 2],
+        dashEnabled: true,
+      };
+    case "dotted":
+      // Near-zero dashes with round caps draw as dots, one stroke width across.
+      return {
+        dash: [0.001, width * 2],
+        dashEnabled: true,
+        lineCap: "round" as const,
+      };
+    default:
+      return { dashEnabled: false };
   }
 }
 
