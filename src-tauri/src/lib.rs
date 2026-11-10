@@ -7,6 +7,7 @@ mod tray;
 mod widget;
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
@@ -53,6 +54,7 @@ pub fn run() {
                 .build(),
         )
         .manage(capture::CaptureState::default())
+        .manage(capture::overlays::OverlayPool::default())
         .manage(capture::scroll::ScrollState::default())
         .manage(shortcuts::ShortcutErrors::default())
         .manage(shortcuts::ShortcutsPaused::default())
@@ -65,6 +67,8 @@ pub fn run() {
             // After the two above, so the menu starts out with their state.
             tray::init(handle)?;
             widget::init(handle);
+            // Ready the capture overlays now, so the first capture opens as fast as the rest.
+            capture::overlays::refill(handle, Duration::ZERO);
             let args: Vec<String> = std::env::args().collect();
             let started_capture = handle_args(handle, &args);
             if !started_capture && !args.iter().any(|arg| arg == AUTOSTART_ARG) {

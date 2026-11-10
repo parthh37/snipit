@@ -8,20 +8,18 @@
 //! A scrolling capture uses the same overlay to pick the area, then hands it to [`scroll`].
 
 pub mod geometry;
+pub mod overlays;
 pub mod scroll;
 mod stitch;
 mod window_list;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, ipc::Response,
-};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, ipc::Response};
 use xcap::Monitor;
 use xcap::image::{RgbaImage, imageops};
 
@@ -30,7 +28,6 @@ use crate::{clipboard, gallery, shortcuts, tray, widget};
 use geometry::{Point, Rect};
 use window_list::TopWindow;
 
-const OVERLAY_PREFIX: &str = "overlay-";
 /// A new snip was saved to the gallery.
 pub const CAPTURE_SAVED_EVENT: &str = "capture-saved";
 /// Asks the main window to open a snip in the editor.
@@ -51,7 +48,8 @@ pub enum CaptureMode {
 
 struct FrozenMonitor {
     bounds: Rect,
-    image: RgbaImage,
+    /// Shared so an overlay can be handed the frame without holding the session lock.
+    image: Arc<RgbaImage>,
 }
 
 struct Session {
@@ -60,6 +58,8 @@ struct Session {
     /// Top-level windows with global bounds, topmost first.
     windows: Vec<TopWindow>,
     cursor: Option<Point>,
+    /// Overlay window labels, one per monitor in the order of `monitors`.
+    overlays: Vec<String>,
     /// Whether the main window was hidden for the capture and should come back afterwards.
     restore_main: bool,
 }
@@ -94,8 +94,14 @@ impl Session {
         let full = Rect::new(0, 0, monitor.bounds.width, monitor.bounds.height);
         let r = local.intersect(&full)?;
         Some(
-            imageops::crop_imm(&monitor.image, r.x as u32, r.y as u32, r.width, r.height)
-                .to_image(),
+            imageops::crop_imm(
+                monitor.image.as_ref(),
+                r.x as u32,
+                r.y as u32,
+                r.width,
+                r.height,
+            )
+            .to_image(),
         )
     }
 }
@@ -151,7 +157,7 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
         thread::sleep(Duration::from_millis(150));
     }
 
-    let session = freeze(app, mode, restore_main)?;
+    let mut session = freeze(app, mode, restore_main)?;
     match mode {
         CaptureMode::Fullscreen => {
             let index = session.monitor_under_cursor();
@@ -163,13 +169,15 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
         }
         CaptureMode::Interactive | CaptureMode::Scrolling => {
             let bounds: Vec<Rect> = session.monitors.iter().map(|m| m.bounds).collect();
+            let labels = overlays::take(app, bounds.len());
+            session.overlays = labels.clone();
             *slot = Some(session);
             drop(slot);
             // The overlays may not get keyboard focus (another app can hold the foreground),
             // so Esc is grabbed globally for as long as they are open.
             shortcuts::grab_escape(app);
-            for (i, b) in bounds.into_iter().enumerate() {
-                if let Err(err) = open_overlay(app, i, b) {
+            for (label, b) in labels.iter().zip(bounds) {
+                if let Err(err) = overlays::present(app, label, b) {
                     cancel(app);
                     return Err(err.to_string());
                 }
@@ -204,7 +212,7 @@ fn freeze(app: &AppHandle, mode: CaptureMode, restore_main: bool) -> Result<Sess
             let bounds = Rect::new(m.x()?, m.y()?, m.width()?, m.height()?);
             Ok(FrozenMonitor {
                 bounds,
-                image: m.capture_image()?,
+                image: Arc::new(m.capture_image()?),
             })
         })
         .collect::<Result<Vec<_>, xcap::XCapError>>()
@@ -217,29 +225,9 @@ fn freeze(app: &AppHandle, mode: CaptureMode, restore_main: bool) -> Result<Sess
         monitors,
         windows,
         cursor,
+        overlays: Vec::new(),
         restore_main,
     })
-}
-
-fn open_overlay(app: &AppHandle, index: usize, bounds: Rect) -> tauri::Result<()> {
-    // Created hidden; the overlay page shows itself once the frozen frame is drawn.
-    let window = WebviewWindowBuilder::new(
-        app,
-        format!("{OVERLAY_PREFIX}{index}"),
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Snipit capture")
-    .visible(false)
-    .decorations(false)
-    .resizable(false)
-    .shadow(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .build()?;
-    // Physical units, so it lands exactly on the monitor whatever its scale factor.
-    window.set_position(PhysicalPosition::new(bounds.x, bounds.y))?;
-    window.set_size(PhysicalSize::new(bounds.width, bounds.height))?;
-    Ok(())
 }
 
 /// Closes the overlays. When a scrolling capture takes over (`scrolling_next`), it keeps the
@@ -248,11 +236,7 @@ fn close_overlays(app: &AppHandle, scrolling_next: bool) {
     if !scrolling_next {
         shortcuts::release_escape(app);
     }
-    for (label, window) in app.webview_windows() {
-        if is_overlay(&label) {
-            let _ = window.destroy();
-        }
-    }
+    overlays::close(app);
     if !scrolling_next {
         widget::restore_after_capture(app);
     }
@@ -323,12 +307,13 @@ fn annotate_clipboard_now(app: &AppHandle) {
     }
 }
 
-fn overlay_index(window: &WebviewWindow) -> Result<usize, String> {
-    window
-        .label()
-        .strip_prefix(OVERLAY_PREFIX)
-        .and_then(|i| i.parse().ok())
-        .ok_or_else(|| "Not a capture overlay".into())
+/// The monitor index of the calling overlay in `session`.
+fn overlay_index(window: &WebviewWindow, session: &Session) -> Result<usize, String> {
+    session
+        .overlays
+        .iter()
+        .position(|label| label == window.label())
+        .ok_or_else(|| "Not an overlay of this capture".into())
 }
 
 #[derive(Debug, Serialize)]
@@ -358,9 +343,9 @@ pub fn overlay_info(
     window: WebviewWindow,
     state: State<'_, CaptureState>,
 ) -> Result<OverlayInfo, String> {
-    let index = overlay_index(&window)?;
     let slot = state.0.lock().map_err(|e| e.to_string())?;
     let session = slot.as_ref().ok_or("No capture in progress")?;
+    let index = overlay_index(&window, session)?;
     let bounds = session.monitors.get(index).ok_or("Unknown monitor")?.bounds;
     let windows = session
         .windows
@@ -383,17 +368,25 @@ pub fn overlay_info(
     })
 }
 
-/// The frozen frame for this overlay's monitor as raw RGBA bytes.
+/// The frozen frame for this overlay's monitor as raw RGBA bytes. Async so it runs off the
+/// main thread, which has to be free to hand over the shared buffer.
 #[tauri::command]
-pub fn overlay_frame(
+pub async fn overlay_frame(
     window: WebviewWindow,
     state: State<'_, CaptureState>,
 ) -> Result<Response, String> {
-    let index = overlay_index(&window)?;
-    let slot = state.0.lock().map_err(|e| e.to_string())?;
-    let session = slot.as_ref().ok_or("No capture in progress")?;
-    let monitor = session.monitors.get(index).ok_or("Unknown monitor")?;
-    Ok(Response::new(monitor.image.as_raw().clone()))
+    let image = {
+        let slot = state.0.lock().map_err(|e| e.to_string())?;
+        let session = slot.as_ref().ok_or("No capture in progress")?;
+        let index = overlay_index(&window, session)?;
+        let monitor = session.monitors.get(index).ok_or("Unknown monitor")?;
+        Arc::clone(&monitor.image)
+    };
+    // An empty response means the frame went through shared memory instead.
+    if overlays::share_frame(&window, Arc::clone(&image)).is_ok() {
+        return Ok(Response::new(Vec::new()));
+    }
+    Ok(Response::new(image.as_raw().clone()))
 }
 
 /// Finishes the capture with `rect`, in the calling overlay's local coordinates.
@@ -404,13 +397,10 @@ pub fn finish_capture(
     state: State<'_, CaptureState>,
     rect: Rect,
 ) -> Result<(), String> {
-    let index = overlay_index(&window)?;
-    let session = state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .take()
-        .ok_or("No capture in progress")?;
+    let mut slot = state.0.lock().map_err(|e| e.to_string())?;
+    let index = overlay_index(&window, slot.as_ref().ok_or("No capture in progress")?)?;
+    let session = slot.take().ok_or("No capture in progress")?;
+    drop(slot);
     let restore_main = session.restore_main;
     if session.mode == CaptureMode::Scrolling {
         let bounds = session.monitors.get(index).map(|m| m.bounds);
@@ -465,8 +455,4 @@ fn local_bounds(window: &TopWindow, monitor: Rect) -> Option<Rect> {
         .bounds
         .intersect(&monitor)
         .map(|r| r.translate(-monitor.x, -monitor.y))
-}
-
-fn is_overlay(label: &str) -> bool {
-    label.starts_with(OVERLAY_PREFIX)
 }
