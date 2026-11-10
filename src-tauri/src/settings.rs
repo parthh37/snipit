@@ -40,6 +40,8 @@ pub struct Settings {
     pub show_widget: bool,
     /// Where the widget was last left; `None` means top-centre of the primary monitor.
     pub widget_position: Option<Anchor>,
+    /// Look for new releases on launch and every few hours (release builds only).
+    pub auto_check_updates: bool,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             tray_hint_shown: false,
             show_widget: true,
             widget_position: None,
+            auto_check_updates: true,
         }
     }
 }
@@ -117,6 +120,7 @@ mod tests {
         assert_eq!(settings.after_capture, AfterCapture::Copy);
         assert!(settings.show_widget);
         assert_eq!(settings.widget_position, None);
+        assert!(settings.auto_check_updates);
         assert_eq!(
             settings
                 .shortcuts
