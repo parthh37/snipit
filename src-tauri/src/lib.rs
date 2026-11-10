@@ -39,6 +39,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(shortcuts::handle)
@@ -51,12 +52,14 @@ pub fn run() {
         )
         .manage(capture::CaptureState::default())
         .manage(shortcuts::ShortcutErrors::default())
+        .manage(shortcuts::ShortcutsPaused::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
-            tray::init(handle)?;
             shortcuts::register_all(handle);
             shortcuts::init_autostart(handle);
+            // After the two above, so the menu starts out with their state.
+            tray::init(handle)?;
             let args: Vec<String> = std::env::args().collect();
             let started_capture = handle_args(handle, &args);
             if !started_capture && !args.iter().any(|arg| arg == AUTOSTART_ARG) {
@@ -93,6 +96,7 @@ pub fn run() {
             {
                 api.prevent_close();
                 let _ = window.hide();
+                tray::hint_still_running(window.app_handle());
             }
         })
         .run(tauri::generate_context!())

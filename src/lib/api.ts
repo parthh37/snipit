@@ -8,6 +8,7 @@ export interface Settings {
   shortcuts: Partial<Record<ShortcutAction, string>>;
   afterCapture: AfterCapture;
   autostartInitialized: boolean;
+  trayHintShown: boolean;
 }
 
 export interface SettingsView {
@@ -17,6 +18,11 @@ export interface SettingsView {
   /** Windows' "Use the Print screen key to open screen capture" is on. */
   printscreenReservedByWindows: boolean;
 }
+
+/** The settings view changed outside the main window (e.g. from the tray); payload `SettingsView`. */
+export const SETTINGS_VIEW_EVENT = "settings-view";
+/** The tray asks the main window to switch view; payload is the view name. */
+export const NAVIGATE_EVENT = "navigate";
 
 export interface Snip {
   path: string;

@@ -24,10 +24,32 @@ Either:
 The workflow then:
 
 1. Checks the tag matches the version in every file above.
-2. Creates a **draft** GitHub release with notes generated from merged PRs.
+2. Creates a **draft** GitHub release: install instructions from
+   [`.github/release-notes.md`](../.github/release-notes.md), then notes generated from
+   merged PRs.
 3. Builds the NSIS (`.exe`) and MSI installers, signs them for the updater and uploads them
    with `latest.json`.
-4. Publishes the release. Only now do installed apps see it.
+4. Uploads the same installers under fixed names, `Snipit-Setup.exe` and
+   `Snipit-Setup.msi`, plus `SHA256SUMS.txt`. So
+   `https://github.com/parthh37/snipit/releases/latest/download/Snipit-Setup.exe` always
+   downloads the newest installer (the README links to it).
+5. Publishes the release. Only now do installed apps see it.
+
+If the `TAURI_SIGNING_PRIVATE_KEY` secret is missing, the release still goes out with both
+installers but without `latest.json`, and the run shows a warning: people can install it,
+but installed copies aren't offered it as an update. Add the key (below) before relying on
+auto-update.
+
+## Which installer
+
+| File               | Installs for              | Admin? | Use it for                                     |
+| ------------------ | ------------------------- | ------ | ---------------------------------------------- |
+| `Snipit-Setup.exe` | The current Windows user  | No     | Everyone (the default download)                |
+| `Snipit-Setup.msi` | All users on the computer | Yes    | Shared PCs, IT deployment (`msiexec /i … /qn`) |
+
+Both bundle the WebView2 bootstrapper, add a Start menu entry and update themselves.
+The `.exe` stays per-user on purpose: Tauri's "per-user or per-machine" NSIS mode asks
+administrators for UAC elevation on every install and every silent update.
 
 A version with a suffix (`0.2.0-beta.1`) is published as a pre-release. The updater only
 follows the latest full release, so pre-releases reach testers who download them, not

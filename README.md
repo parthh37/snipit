@@ -6,11 +6,13 @@
 
 ## Install
 
-Download `Snipit_x.y.z_x64-setup.exe` from the
-[latest release](https://github.com/parthh37/snipit/releases/latest) and run it. It installs
-for your user only (no admin prompt), sets up WebView2 if it's missing and adds a Start menu
-shortcut. Snipit updates itself from then on. An `.msi` is also attached for
-managed/IT deployments.
+**[Download Snipit-Setup.exe](https://github.com/parthh37/snipit/releases/latest/download/Snipit-Setup.exe)**
+(Windows 10/11, 64-bit) and run it. It installs for your user only (no admin prompt), sets
+up WebView2 if it's missing and adds a Start menu shortcut. Snipit updates itself from then
+on. To install for everyone on a PC or deploy with IT tools, use
+[Snipit-Setup.msi](https://github.com/parthh37/snipit/releases/latest/download/Snipit-Setup.msi)
+(needs admin; `msiexec /i Snipit-Setup.msi /qn` installs silently). All files are on the
+[releases page](https://github.com/parthh37/snipit/releases/latest).
 
 > Windows may show "Windows protected your PC" because the installer isn't code-signed
 > yet — click **More info → Run anyway**.
@@ -25,7 +27,14 @@ managed/IT deployments.
 
 ## Using Snipit
 
-Snipit starts with Windows (in release builds) and waits in the system tray.
+Snipit starts with Windows (in release builds) and waits in the system tray. Windows 11 may
+tuck a new tray icon under the **^** arrow; drag it onto the taskbar to keep it in view.
+
+The tray icon shows that Snipit is running (it turns grey while shortcuts are paused) and its
+tooltip names the capture key. Left-click opens Snipit; right-click has quick actions:
+capture a region, window or full screen, annotate the clipboard image, open one of your recent
+captures or the captures folder, pause shortcuts, switch launch at login on or off, open
+Settings, check for updates and quit.
 
 | Action                        | How                                                         |
 | ----------------------------- | ----------------------------------------------------------- |

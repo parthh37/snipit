@@ -31,6 +31,8 @@ pub struct Settings {
     /// Set once launch-at-login has been switched on for the first time, so turning it
     /// off later sticks.
     pub autostart_initialized: bool,
+    /// Set once Snipit has said it keeps running in the tray after the window is closed.
+    pub tray_hint_shown: bool,
 }
 
 impl Default for Settings {
@@ -45,6 +47,7 @@ impl Default for Settings {
             ]),
             after_capture: AfterCapture::default(),
             autostart_initialized: false,
+            tray_hint_shown: false,
         }
     }
 }

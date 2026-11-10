@@ -7,6 +7,8 @@ import Gallery from "../../gallery/Gallery";
 import {
   api,
   errorMessage,
+  NAVIGATE_EVENT,
+  SETTINGS_VIEW_EVENT,
   type SettingsView,
   type ShortcutAction,
 } from "../../lib/api";
@@ -108,6 +110,12 @@ export default function MainWindow() {
         }
       }),
       listen<string>(ERROR_EVENT, (e) => notify(e.payload)),
+      listen<SettingsView>(SETTINGS_VIEW_EVENT, (e) => setSettings(e.payload)),
+      listen<string>(NAVIGATE_EVENT, (e) => {
+        if (NAV.some((item) => item.view === e.payload)) {
+          setView(e.payload as View);
+        }
+      }),
     ];
     return () => {
       for (const sub of subscriptions) void sub.then((off) => off());
