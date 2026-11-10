@@ -1,7 +1,10 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export type ShortcutAction =
-  "captureRegion" | "captureFullscreen" | "annotateClipboard";
+  | "captureRegion"
+  | "captureFullscreen"
+  | "captureScrolling"
+  | "annotateClipboard";
 export type AfterCapture = "edit" | "copy";
 
 export interface Settings {

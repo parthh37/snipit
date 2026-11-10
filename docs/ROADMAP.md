@@ -55,7 +55,7 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 
 ## M5 — Advanced capture
 
-- [ ] Scrolling capture with auto-stitch
+- [x] Scrolling capture with auto-stitch (mouse-wheel driven; starts from the top of the page)
 - [ ] OCR text capture
 - [ ] Color picker
 - [ ] Panoramic (manual scroll) capture

@@ -18,6 +18,7 @@ use crate::{
 
 const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
+const MENU_CAPTURE_SCROLLING: &str = "capture_scrolling";
 const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
 const MENU_OPEN_FOLDER: &str = "open_folder";
 const MENU_WIDGET: &str = "widget";
@@ -30,6 +31,8 @@ const MENU_QUIT: &str = "quit";
 /// Recent capture items are `recent:<path of the snip>`.
 const MENU_RECENT_PREFIX: &str = "recent:";
 const RECENT_COUNT: usize = 6;
+
+const SCROLLING_LABEL: &str = "Scrolling capture (long page)";
 
 /// Event the main window listens for to run an update check (see `src/windows/main/useUpdater.ts`).
 const EVENT_CHECK_UPDATES: &str = "check-for-updates";
@@ -44,6 +47,7 @@ pub struct Tray {
     status: MenuItem<Wry>,
     capture_region: MenuItem<Wry>,
     capture_fullscreen: MenuItem<Wry>,
+    capture_scrolling: MenuItem<Wry>,
     annotate_clipboard: MenuItem<Wry>,
     recent: Submenu<Wry>,
     /// Held while the recent submenu is rebuilt so two rebuilds don't interleave. Only taken
@@ -63,6 +67,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let status = MenuItem::new(app, "Snipit", false, None::<&str>)?;
     let capture_region = item(MENU_CAPTURE, "Capture region or window")?;
     let capture_fullscreen = item(MENU_CAPTURE_FULLSCREEN, "Capture full screen")?;
+    let capture_scrolling = item(MENU_CAPTURE_SCROLLING, SCROLLING_LABEL)?;
     let annotate_clipboard = item(MENU_ANNOTATE_CLIPBOARD, "Annotate clipboard image")?;
     let recent = Submenu::new(app, "Recent captures", true)?;
     let open_folder = item(MENU_OPEN_FOLDER, "Open captures folder")?;
@@ -88,6 +93,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &capture_region,
             &capture_fullscreen,
+            &capture_scrolling,
             &annotate_clipboard,
             &PredefinedMenuItem::separator(app)?,
             &recent,
@@ -133,6 +139,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         status,
         capture_region,
         capture_fullscreen,
+        capture_scrolling,
         annotate_clipboard,
         recent,
         recent_rebuild: Mutex::default(),
@@ -154,6 +161,7 @@ fn on_menu(app: &AppHandle, id: &str) {
     match id {
         MENU_CAPTURE => capture::start(app, CaptureMode::Interactive, true),
         MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
+        MENU_CAPTURE_SCROLLING => capture::start(app, CaptureMode::Scrolling, true),
         MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
         MENU_OPEN_FOLDER => {
             if let Err(err) = gallery::open_gallery_folder(app.clone()) {
@@ -224,6 +232,9 @@ pub fn refresh(app: &AppHandle) {
         "Capture full screen",
         ShortcutAction::CaptureFullscreen,
     ));
+    let _ = tray
+        .capture_scrolling
+        .set_text(with_key(SCROLLING_LABEL, ShortcutAction::CaptureScrolling));
     let _ = tray.annotate_clipboard.set_text(with_key(
         "Annotate clipboard image",
         ShortcutAction::AnnotateClipboard,

@@ -13,6 +13,7 @@ export default function Overlay() {
   const frameRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
   const [showHint, setShowHint] = useState(true);
+  const [scrolling, setScrolling] = useState(false);
 
   useEffect(() => {
     let controller: OverlayController | undefined;
@@ -35,6 +36,7 @@ export default function Overlay() {
         getOverlayFrame(),
       ]);
       if (disposed) return;
+      setScrolling(info.mode === "scrolling");
       const pixels = new Uint8ClampedArray(buffer);
 
       const frame = frameRef.current!;
@@ -77,8 +79,17 @@ export default function Overlay() {
       <canvas ref={uiRef} className="absolute inset-0 size-full" />
       {showHint && (
         <div className="pointer-events-none absolute top-6 left-1/2 -translate-x-1/2 rounded-full bg-zinc-950/85 px-4 py-2 text-sm text-white shadow-lg">
-          Drag to select · Click a window · <Key>F</Key> full screen ·{" "}
-          <Key>Esc</Key> cancel
+          {scrolling ? (
+            <>
+              Scrolling capture: click the window or drag the part that scrolls
+              · <Key>Esc</Key> cancel
+            </>
+          ) : (
+            <>
+              Drag to select · Click a window · <Key>F</Key> full screen ·{" "}
+              <Key>Esc</Key> cancel
+            </>
+          )}
         </div>
       )}
     </div>

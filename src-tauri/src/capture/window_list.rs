@@ -2,9 +2,17 @@
 
 use super::geometry::Rect;
 
-/// Visible top-level windows in z-order, topmost first, as on-screen frame bounds.
+#[derive(Debug, Clone, Copy)]
+pub struct TopWindow {
+    /// On-screen frame bounds.
+    pub bounds: Rect,
+    /// The window handle (`HWND`), so a scrolling capture can bring it to the front.
+    pub handle: isize,
+}
+
+/// Visible top-level windows in z-order, topmost first.
 #[cfg(windows)]
-pub fn visible_windows() -> Vec<Rect> {
+pub fn visible_windows() -> Vec<TopWindow> {
     use std::ffi::c_void;
     use windows::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows::Win32::Graphics::Dwm::{
@@ -20,7 +28,7 @@ pub fn visible_windows() -> Vec<Rect> {
     const SKIPPED_CLASSES: [&str; 2] = ["Progman", "WorkerW"];
 
     unsafe extern "system" fn collect(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let rects = unsafe { &mut *(lparam.0 as *mut Vec<Rect>) };
+        let found = unsafe { &mut *(lparam.0 as *mut Vec<TopWindow>) };
         unsafe {
             if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
                 return true.into();
@@ -61,25 +69,26 @@ pub fn visible_windows() -> Vec<Rect> {
             let width = bounds.right - bounds.left;
             let height = bounds.bottom - bounds.top;
             if width > 0 && height > 0 {
-                rects.push(Rect::new(
-                    bounds.left,
-                    bounds.top,
-                    width as u32,
-                    height as u32,
-                ));
+                found.push(TopWindow {
+                    bounds: Rect::new(bounds.left, bounds.top, width as u32, height as u32),
+                    handle: hwnd.0 as isize,
+                });
             }
         }
         true.into()
     }
 
-    let mut rects: Vec<Rect> = Vec::new();
+    let mut found: Vec<TopWindow> = Vec::new();
     unsafe {
-        let _ = EnumWindows(Some(collect), LPARAM(&mut rects as *mut Vec<Rect> as isize));
+        let _ = EnumWindows(
+            Some(collect),
+            LPARAM(&mut found as *mut Vec<TopWindow> as isize),
+        );
     }
-    rects
+    found
 }
 
 #[cfg(not(windows))]
-pub fn visible_windows() -> Vec<Rect> {
+pub fn visible_windows() -> Vec<TopWindow> {
     Vec::new()
 }

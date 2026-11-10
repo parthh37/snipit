@@ -14,9 +14,11 @@ export interface Rect {
   height: number;
 }
 
-export type CaptureMode = "interactive" | "fullscreen";
+export type CaptureMode = "interactive" | "fullscreen" | "scrolling";
 
 export interface OverlayInfo {
+  /** "scrolling" when the picked area is going to be scrolled and stitched. */
+  mode: CaptureMode;
   width: number;
   height: number;
   /** Windows on this monitor in local coordinates, topmost first. */
@@ -52,3 +54,14 @@ export const finishCapture = (rect: Rect) =>
   invoke<void>("finish_capture", { rect });
 
 export const cancelCapture = () => invoke<void>("cancel_capture");
+
+/** Progress of a running scrolling capture, sent to its status pill. */
+export interface ScrollProgress {
+  phase: "starting" | "top" | "capturing";
+  /** Height of the stitched image so far, in pixels. */
+  height: number;
+  /** Moving the mouse also finishes the capture. */
+  mouseStops: boolean;
+}
+
+export const SCROLL_PROGRESS_EVENT = "scroll:progress";

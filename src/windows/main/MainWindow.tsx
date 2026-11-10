@@ -53,6 +53,12 @@ const captureModes: {
     run: () => startCapture("fullscreen"),
   },
   {
+    name: "Scrolling",
+    hint: "A whole webpage or long window, scrolled and stitched",
+    shortcut: "captureScrolling",
+    run: () => startCapture("scrolling"),
+  },
+  {
     name: "From clipboard",
     hint: "Annotate a copied image (Ctrl+V)",
     shortcut: "annotateClipboard",
@@ -214,7 +220,7 @@ export default function MainWindow() {
                 <h2 className="mb-4 text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
                   New capture
                 </h2>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {captureModes.map((mode) => {
                     const accel = settings?.settings.shortcuts[mode.shortcut];
                     return (

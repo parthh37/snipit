@@ -24,7 +24,7 @@ const COLLAPSE_EVENT: &str = "widget:collapsed";
 
 /// Window sizes in logical pixels; the page lays itself out to fill them.
 const COLLAPSED: (f64, f64) = (76.0, 24.0);
-const EXPANDED: (f64, f64) = (356.0, 78.0);
+const EXPANDED: (f64, f64) = (430.0, 78.0);
 
 /// Top-centre of the widget in physical screen pixels. `y` is the top of the monitor it is
 /// docked to.
@@ -284,6 +284,6 @@ mod tests {
     #[test]
     fn scales_with_the_monitor() {
         let (_, size, _) = layout_on(0, 2560, 1.5, true, None);
-        assert_eq!((size.width, size.height), (534, 117));
+        assert_eq!((size.width, size.height), (645, 117));
     }
 }

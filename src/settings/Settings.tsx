@@ -15,6 +15,7 @@ import {
 const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   captureRegion: "Capture region or window",
   captureFullscreen: "Capture full screen",
+  captureScrolling: "Scrolling capture (long page)",
   annotateClipboard: "Annotate clipboard image",
 };
 
