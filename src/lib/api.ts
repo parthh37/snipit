@@ -8,6 +8,9 @@ export interface Settings {
   shortcuts: Partial<Record<ShortcutAction, string>>;
   afterCapture: AfterCapture;
   autostartInitialized: boolean;
+  /** The floating capture widget docked to the top of the screen. */
+  showWidget: boolean;
+  widgetPosition: { x: number; y: number } | null;
 }
 
 export interface SettingsView {
@@ -17,6 +20,9 @@ export interface SettingsView {
   /** Windows' "Use the Print screen key to open screen capture" is on. */
   printscreenReservedByWindows: boolean;
 }
+
+/** Settings changed outside the main window (e.g. the widget was hidden); payload `Settings`. */
+export const SETTINGS_CHANGED_EVENT = "settings-changed";
 
 export interface Snip {
   path: string;
@@ -51,6 +57,9 @@ export const api = {
   setAutostart: (enabled: boolean) =>
     invoke<SettingsView>("set_autostart", { enabled }),
   openKeyboardSettings: () => invoke<void>("open_keyboard_settings"),
+  setWidgetVisible: (visible: boolean) =>
+    invoke<Settings>("set_widget_visible", { visible }),
+  openMainWindow: () => invoke<void>("open_main_window"),
 };
 
 /** URL for showing a gallery file in an `<img>`; `version` busts the cache after edits. */

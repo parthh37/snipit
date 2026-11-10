@@ -4,6 +4,7 @@ mod gallery;
 mod settings;
 mod shortcuts;
 mod tray;
+mod widget;
 
 use std::sync::Mutex;
 
@@ -51,12 +52,14 @@ pub fn run() {
         )
         .manage(capture::CaptureState::default())
         .manage(shortcuts::ShortcutErrors::default())
+        .manage(widget::WidgetState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             tray::init(handle)?;
             shortcuts::register_all(handle);
             shortcuts::init_autostart(handle);
+            widget::init(handle);
             let args: Vec<String> = std::env::args().collect();
             let started_capture = handle_args(handle, &args);
             if !started_capture && !args.iter().any(|arg| arg == AUTOSTART_ARG) {
@@ -85,6 +88,12 @@ pub fn run() {
             shortcuts::pause_shortcuts,
             shortcuts::set_autostart,
             shortcuts::open_keyboard_settings,
+            widget::set_widget_visible,
+            widget::widget_set_expanded,
+            widget::widget_drag_start,
+            widget::widget_drag_move,
+            widget::widget_drag_end,
+            widget::open_main_window,
         ])
         .on_window_event(|window, event| {
             // Closing the main window hides it to the tray; "Quit" in the tray menu exits.

@@ -34,10 +34,17 @@ Snipit starts with Windows (in release builds) and waits in the system tray.
 | Cancel                        | `Esc` or right-click                                        |
 | Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu               |
 | From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
+| Capture widget                | Point at the tab at the top of the screen, pick a capture   |
 
 All shortcuts can be changed in **Settings**. Every capture is saved as a PNG in
 `Pictures\Snipit` and listed in the **Gallery**; Settings picks whether a new capture then
 opens in the editor (the default) or goes straight to the clipboard.
+
+The **capture widget** is a small tab docked to the top edge of the screen. Point at it and it
+opens into buttons for region, full-screen and clipboard captures. Drag its grip to slide it
+along the top edge or onto another monitor. It never takes focus from the app you are in and
+never shows up in your captures. Hide it with its **×** button, and turn it back on from the
+tray menu (**Show capture widget**) or Settings.
 
 If `PrtSc` doesn't work, either Windows is using it for Snipping Tool (turn off **Settings →
 Accessibility → Keyboard → Use the Print screen key to open screen capture**) or another
