@@ -9,6 +9,8 @@ const DRAG_THRESHOLD = 4;
 const LOUPE_PIXELS = 15;
 const LOUPE_SIZE = 135;
 const LOUPE_OFFSET = 24;
+/** Length of each arm of the cursor crosshair, CSS pixels. */
+const CROSSHAIR_ARM = 11;
 
 export interface OverlayCallbacks {
   finish(rect: Rect): void;
@@ -26,9 +28,12 @@ export class OverlayController {
   private dragStart: Point | null = null;
   private selection: Rect | null = null;
   private frame = 0;
+  /** Arm length of the drawn crosshair in physical pixels; redrawn if the scale changes. */
+  private crosshairArm = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
+    private readonly crosshair: HTMLCanvasElement,
     private readonly info: OverlayInfo,
     private readonly pixels: Uint8ClampedArray,
     private readonly callbacks: OverlayCallbacks,
@@ -37,6 +42,7 @@ export class OverlayController {
     canvas.height = info.height;
     this.ctx = canvas.getContext("2d")!;
     this.cursor = info.cursor;
+    this.moveCrosshair();
     this.render();
   }
 
@@ -82,12 +88,19 @@ export class OverlayController {
     if (e.button !== 0) return;
     this.canvas.setPointerCapture(e.pointerId);
     this.cursor = this.toLocal(e);
+    this.moveCrosshair();
     this.dragStart = this.cursor;
     this.schedule();
   };
 
+  /** The pointer went to another monitor's overlay, which draws its own crosshair. */
+  pointerLeave = () => {
+    if (!this.dragStart) this.crosshair.style.visibility = "hidden";
+  };
+
   pointerMove = (e: PointerEvent) => {
     this.cursor = this.toLocal(e);
+    this.moveCrosshair();
     const start = this.dragStart;
     if (start) {
       const threshold = DRAG_THRESHOLD * this.scale;
@@ -119,6 +132,39 @@ export class OverlayController {
 
   dispose() {
     cancelAnimationFrame(this.frame);
+  }
+
+  /**
+   * Puts the hairline crosshair on the cursor pixel. It is its own small element, moved right
+   * away on each event, so it tracks the pointer without waiting for a full redraw.
+   */
+  private moveCrosshair() {
+    const c = this.cursor;
+    const el = this.crosshair;
+    if (!c) {
+      el.style.visibility = "hidden";
+      return;
+    }
+    const s = this.scale;
+    const arm = Math.round(CROSSHAIR_ARM * s);
+    if (arm !== this.crosshairArm) this.drawCrosshair(arm, s);
+    el.style.transform = `translate(${(c.x - arm) / s}px, ${(c.y - arm) / s}px)`;
+    el.style.visibility = "visible";
+  }
+
+  /** A plus one physical pixel thick, `arm` pixels each side of the centre pixel. */
+  private drawCrosshair(arm: number, s: number) {
+    const el = this.crosshair;
+    const size = arm * 2 + 1;
+    el.width = size;
+    el.height = size;
+    el.style.width = `${size / s}px`;
+    el.style.height = `${size / s}px`;
+    const ctx = el.getContext("2d")!;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, arm, size, 1);
+    ctx.fillRect(arm, 0, 1, size);
+    this.crosshairArm = arm;
   }
 
   private schedule() {
@@ -201,13 +247,20 @@ export class OverlayController {
       }
     }
 
-    // Crosshair through the cursor pixel.
-    ctx.fillStyle = "rgba(108, 108, 255, 0.35)";
-    ctx.fillRect(x, y + half * cell, size, cell);
-    ctx.fillRect(x + half * cell, y, cell, size);
+    // Hairlines through the cursor pixel, which gets a box so its colour stays visible.
+    const hair = Math.max(1, Math.round(s));
+    const cx = x + half * cell;
+    const cy = y + half * cell;
+    const mid = (cell - hair) / 2;
+    const rest = size - (half + 1) * cell;
+    ctx.fillStyle = "rgba(140, 140, 255, 0.9)";
+    ctx.fillRect(x, cy + mid, half * cell, hair);
+    ctx.fillRect(cx + cell, cy + mid, rest, hair);
+    ctx.fillRect(cx + mid, y, hair, half * cell);
+    ctx.fillRect(cx + mid, cy + cell, hair, rest);
     ctx.strokeStyle = "#fff";
-    ctx.lineWidth = Math.max(1, s);
-    ctx.strokeRect(x + half * cell, y + half * cell, cell, cell);
+    ctx.lineWidth = hair;
+    ctx.strokeRect(cx, cy, cell, cell);
 
     const hex = this.colorAt(c.x, c.y) ?? "#000000";
     ctx.fillStyle = "rgba(15, 15, 20, 0.92)";

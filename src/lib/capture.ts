@@ -45,10 +45,39 @@ export const startCapture = (mode: CaptureMode) =>
 
 export const annotateClipboard = () => invoke<void>("annotate_clipboard_cmd");
 
+/** Sent to a ready, hidden overlay when a capture claims it for a monitor. */
+export const OVERLAY_START_EVENT = "overlay:start";
+
 export const getOverlayInfo = () => invoke<OverlayInfo>("overlay_info");
 
-/** The frozen frame for this overlay's monitor, as raw RGBA bytes. */
-export const getOverlayFrame = () => invoke<ArrayBuffer>("overlay_frame");
+interface SharedBufferEvent extends Event {
+  getBuffer(): ArrayBuffer;
+}
+
+/** WebView2's host bridge, which can hand the page shared memory (absent elsewhere). */
+const webview2 = (
+  window as unknown as {
+    chrome?: { webview?: EventTarget };
+  }
+).chrome?.webview;
+
+/**
+ * The frozen frame for this overlay's monitor, as raw RGBA bytes. Under WebView2 it arrives
+ * through shared memory and the command answers with no bytes; otherwise in the response.
+ */
+export async function getOverlayFrame(): Promise<ArrayBuffer> {
+  let onShared: (e: Event) => void = () => {};
+  const shared = new Promise<ArrayBuffer>((resolve) => {
+    onShared = (e) => resolve((e as SharedBufferEvent).getBuffer());
+  });
+  webview2?.addEventListener("sharedbufferreceived", onShared);
+  try {
+    const bytes = await invoke<ArrayBuffer>("overlay_frame");
+    return bytes.byteLength > 0 ? bytes : await shared;
+  } finally {
+    webview2?.removeEventListener("sharedbufferreceived", onShared);
+  }
+}
 
 export const finishCapture = (rect: Rect) =>
   invoke<void>("finish_capture", { rect });
