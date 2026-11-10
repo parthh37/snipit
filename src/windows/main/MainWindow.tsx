@@ -7,6 +7,8 @@ import Gallery from "../../gallery/Gallery";
 import {
   api,
   errorMessage,
+  NAVIGATE_EVENT,
+  SETTINGS_VIEW_EVENT,
   SETTINGS_CHANGED_EVENT,
   type Settings as AppSettings,
   type SettingsView,
@@ -110,6 +112,12 @@ export default function MainWindow() {
         }
       }),
       listen<string>(ERROR_EVENT, (e) => notify(e.payload)),
+      listen<SettingsView>(SETTINGS_VIEW_EVENT, (e) => setSettings(e.payload)),
+      listen<string>(NAVIGATE_EVENT, (e) => {
+        if (NAV.some((item) => item.view === e.payload)) {
+          setView(e.payload as View);
+        }
+      }),
       listen<AppSettings>(SETTINGS_CHANGED_EVENT, (e) =>
         setSettings((view) => view && { ...view, settings: e.payload }),
       ),

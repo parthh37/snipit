@@ -33,6 +33,8 @@ pub struct Settings {
     /// Set once launch-at-login has been switched on for the first time, so turning it
     /// off later sticks.
     pub autostart_initialized: bool,
+    /// Set once Snipit has said it keeps running in the tray after the window is closed.
+    pub tray_hint_shown: bool,
     /// Show the floating capture widget docked to the top of the screen.
     pub show_widget: bool,
     /// Where the widget was last left; `None` means top-centre of the primary monitor.
@@ -51,6 +53,7 @@ impl Default for Settings {
             ]),
             after_capture: AfterCapture::default(),
             autostart_initialized: false,
+            tray_hint_shown: false,
             show_widget: true,
             widget_position: None,
         }

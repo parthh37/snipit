@@ -70,6 +70,7 @@ jobs:
     outputs:
       id: ${{ steps.create.outputs.id }}
     steps:
+      - uses: actions/checkout@v4
       - id: create
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,9 +78,12 @@ jobs:
         run: |
           prerelease=false
           case "$TAG" in *-*) prerelease=true ;; esac
+          # Install instructions go above the notes GitHub generates from merged PRs.
+          body=$(sed -e "s|{{REPO}}|$GITHUB_REPOSITORY|g" -e "s|{{TAG}}|$TAG|g" .github/release-notes.md)
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
             -f tag_name="$TAG" \
             -f name="Snipit $TAG" \
+            -f body="$body" \
             -F draft=true \
             -F prerelease="$prerelease" \
             -F generate_release_notes=true \
@@ -90,6 +94,9 @@ jobs:
     name: Build Windows installers
     needs: [prepare, create-release]
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,6 +110,20 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+
+      # Without the updater key the installers are still published, but installed copies
+      # won't be offered this version as an update. See docs/RELEASING.md to add the key.
+      - name: Check updater signing key
+        id: signing
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "args=--config src-tauri/tauri.release.conf.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has no auto-update (latest.json). See docs/RELEASING.md."
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -110,10 +131,31 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.id }}
-          # Produces the .sig files and latest.json the in-app updater reads.
-          args: --config src-tauri/tauri.release.conf.json
+          # With the key: also produces the .sig files and latest.json the in-app updater reads.
+          args: ${{ steps.signing.outputs.args }}
           # Update through the NSIS installer (per-user, no admin prompt), not the MSI.
           updaterJsonPreferNsis: true
+
+      # Fixed names, so the README and website can link to
+      # releases/latest/download/Snipit-Setup.exe and always get the newest installer.
+      - name: Upload Snipit-Setup.exe, Snipit-Setup.msi and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.create-release.outputs.id }}
+        run: |
+          set -euo pipefail
+          bundle=src-tauri/target/release/bundle
+          mkdir -p upload
+          cp "$(ls "$bundle"/nsis/*-setup.exe | head -n1)" upload/Snipit-Setup.exe
+          cp "$(ls "$bundle"/msi/*.msi | head -n1)" upload/Snipit-Setup.msi
+          cp "$bundle"/nsis/*-setup.exe "$bundle"/msi/*.msi upload/
+          (cd upload && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          for file in Snipit-Setup.exe Snipit-Setup.msi SHA256SUMS.txt; do
+            gh api --method POST \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=$file" \
+              --input "upload/$file" --jq .browser_download_url
+          done
 
   publish:
     name: Publish release

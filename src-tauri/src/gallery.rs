@@ -10,6 +10,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, ipc::Response};
 use xcap::image::{ImageFormat, RgbaImage};
 
+use crate::tray;
+
 /// Every snip is saved here as a PNG; the Gallery view lists this folder.
 pub fn dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let dir = app
@@ -68,16 +70,21 @@ fn checked<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<PathBuf, String
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snip {
-    path: PathBuf,
-    name: String,
+    pub path: PathBuf,
+    pub name: String,
     /// Milliseconds since the Unix epoch.
-    modified: u64,
+    pub modified: u64,
     size: u64,
 }
 
 #[tauri::command]
 pub async fn list_snips(app: AppHandle) -> Result<Vec<Snip>, String> {
-    let mut snips: Vec<Snip> = fs::read_dir(dir(&app)?)
+    list(&app)
+}
+
+/// Every snip in the gallery folder, newest first.
+pub fn list<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<Snip>, String> {
+    let mut snips: Vec<Snip> = fs::read_dir(dir(app)?)
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .filter(|entry| {
@@ -104,7 +111,7 @@ pub async fn list_snips(app: AppHandle) -> Result<Vec<Snip>, String> {
 const EDITED_SUFFIX: &str = "_edited";
 
 /// Whether `stem` names an edited copy: `name_edited`, or `name_edited_2` and so on.
-fn is_edited(stem: &str) -> bool {
+pub fn is_edited(stem: &str) -> bool {
     let base = match stem.rsplit_once('_') {
         Some((base, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
         _ => stem,
@@ -150,20 +157,24 @@ pub async fn save_snip(
         .get("x-snip-path")
         .and_then(|value| value.to_str().ok())
         .map(percent_decode);
-    match target {
+    let path = match target {
         Some(path) => {
             let path = edit_target(&checked(&app, &path)?);
             fs::write(&path, png).map_err(|e| e.to_string())?;
-            Ok(path)
+            path
         }
-        None => save_new(&app, png),
-    }
+        None => save_new(&app, png)?,
+    };
+    tray::refresh_recent(&app);
+    Ok(path)
 }
 
 /// Moves a snip to the Recycle Bin.
 #[tauri::command]
 pub async fn delete_snip(app: AppHandle, path: String) -> Result<(), String> {
-    trash::delete(checked(&app, &path)?).map_err(|e| e.to_string())
+    trash::delete(checked(&app, &path)?).map_err(|e| e.to_string())?;
+    tray::refresh_recent(&app);
+    Ok(())
 }
 
 #[tauri::command]
