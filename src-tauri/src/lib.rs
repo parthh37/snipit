@@ -21,6 +21,7 @@ fn handle_args(app: &AppHandle, args: &[String]) -> bool {
     let mode = args.iter().find_map(|a| match a.as_str() {
         "--capture" => Some(CaptureMode::Interactive),
         "--capture-fullscreen" => Some(CaptureMode::Fullscreen),
+        "--capture-scrolling" => Some(CaptureMode::Scrolling),
         _ => None,
     });
     if let Some(mode) = mode {
@@ -51,6 +52,7 @@ pub fn run() {
                 .build(),
         )
         .manage(capture::CaptureState::default())
+        .manage(capture::scroll::ScrollState::default())
         .manage(shortcuts::ShortcutErrors::default())
         .manage(widget::WidgetState::default())
         .setup(|app| {

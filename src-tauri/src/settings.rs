@@ -11,6 +11,7 @@ use crate::widget::Anchor;
 pub enum ShortcutAction {
     CaptureRegion,
     CaptureFullscreen,
+    CaptureScrolling,
     AnnotateClipboard,
 }
 
@@ -48,6 +49,7 @@ impl Default for Settings {
                     ShortcutAction::CaptureFullscreen,
                     "Shift+PrintScreen".into(),
                 ),
+                (ShortcutAction::CaptureScrolling, "Ctrl+PrintScreen".into()),
             ]),
             after_capture: AfterCapture::default(),
             autostart_initialized: false,

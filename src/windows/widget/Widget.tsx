@@ -39,6 +39,13 @@ const ACTIONS: {
     run: () => startCapture("fullscreen"),
   },
   {
+    label: "Scrolling",
+    title: "Capture a whole webpage or long window by scrolling it",
+    shortcut: "captureScrolling",
+    icon: <ScrollIcon />,
+    run: () => startCapture("scrolling"),
+  },
+  {
     label: "Clipboard",
     title: "Annotate the image on the clipboard",
     shortcut: "annotateClipboard",
@@ -266,6 +273,16 @@ function ScreenIcon() {
     <Svg>
       <rect x="3" y="4" width="18" height="12" rx="1.5" />
       <path d="M9 20h6M12 16v4" />
+    </Svg>
+  );
+}
+
+function ScrollIcon() {
+  return (
+    <Svg>
+      <rect x="5" y="3" width="14" height="18" rx="1.5" />
+      <path d="M9 8h6M9 11h6M9 14h3" />
+      <path d="M12 17.5l-1.5-1.5M12 17.5l1.5-1.5" />
     </Svg>
   );
 }

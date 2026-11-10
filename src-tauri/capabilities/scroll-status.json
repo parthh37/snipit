@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "scroll-status",
+  "description": "Capability for the status pill shown during a scrolling capture",
+  "windows": ["scroll-status"],
+  "permissions": ["core:default"]
+}

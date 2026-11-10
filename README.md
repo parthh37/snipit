@@ -27,14 +27,15 @@ managed/IT deployments.
 
 Snipit starts with Windows (in release builds) and waits in the system tray.
 
-| Action                        | How                                                         |
-| ----------------------------- | ----------------------------------------------------------- |
-| Region or window              | `PrtSc`, then drag a region or click a window               |
-| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open |
-| Cancel                        | `Esc` or right-click                                        |
-| Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu               |
-| From other tools              | `snipit --capture` or `snipit --capture-fullscreen`         |
-| Capture widget                | Point at the tab at the top of the screen, pick a capture   |
+| Action                        | How                                                                                                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Region or window              | `PrtSc`, then drag a region or click a window                                                                                                                                 |
+| Full screen (current monitor) | `Shift` + `PrtSc`, or `F` while the capture overlay is open                                                                                                                   |
+| Scrolling (whole webpage)     | `Ctrl` + `PrtSc`, then click the window or drag the part that scrolls; Snipit scrolls it from the top and stitches one long image. `Esc` (or moving the mouse) finishes early |
+| Cancel                        | `Esc` or right-click                                                                                                                                                          |
+| Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu                                                                                                                                 |
+| From other tools              | `snipit --capture`, `--capture-fullscreen` or `--capture-scrolling`                                                                                                           |
+| Capture widget                | Point at the tab at the top of the screen, pick a capture                                                                                                                     |
 
 All shortcuts can be changed in **Settings**. Every capture is saved as a PNG in
 `Pictures\Snipit` and listed in the **Gallery**; Settings picks whether a new capture then

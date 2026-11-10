@@ -9,6 +9,7 @@ use crate::{settings, widget};
 
 const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
+const MENU_CAPTURE_SCROLLING: &str = "capture_scrolling";
 const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
 const MENU_WIDGET: &str = "widget";
 const MENU_OPEN: &str = "open";
@@ -31,6 +32,13 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         app,
         MENU_CAPTURE_FULLSCREEN,
         "Capture full screen",
+        true,
+        None::<&str>,
+    )?;
+    let capture_scrolling = MenuItem::with_id(
+        app,
+        MENU_CAPTURE_SCROLLING,
+        "Scrolling capture (long page)",
         true,
         None::<&str>,
     )?;
@@ -64,6 +72,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         &[
             &capture,
             &capture_fullscreen,
+            &capture_scrolling,
             &annotate_clipboard,
             &PredefinedMenuItem::separator(app)?,
             &show_widget,
@@ -81,6 +90,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_CAPTURE => capture::start(app, CaptureMode::Interactive, true),
             MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
+            MENU_CAPTURE_SCROLLING => capture::start(app, CaptureMode::Scrolling, true),
             MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
             MENU_WIDGET => {
                 let enabled = !settings::get(app).show_widget;

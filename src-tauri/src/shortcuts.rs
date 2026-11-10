@@ -45,6 +45,9 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         Some(ShortcutAction::CaptureFullscreen) => {
             capture::start(app, CaptureMode::Fullscreen, false)
         }
+        Some(ShortcutAction::CaptureScrolling) => {
+            capture::start(app, CaptureMode::Scrolling, false)
+        }
         Some(ShortcutAction::AnnotateClipboard) => capture::annotate_clipboard(app),
         None => {}
     }
@@ -219,6 +222,7 @@ fn label(action: ShortcutAction) -> &'static str {
     match action {
         ShortcutAction::CaptureRegion => "Capture region or window",
         ShortcutAction::CaptureFullscreen => "Capture full screen",
+        ShortcutAction::CaptureScrolling => "Scrolling capture",
         ShortcutAction::AnnotateClipboard => "Annotate clipboard image",
     }
 }
