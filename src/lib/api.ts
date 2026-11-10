@@ -11,6 +11,7 @@ export interface Settings {
   shortcuts: Partial<Record<ShortcutAction, string>>;
   afterCapture: AfterCapture;
   autostartInitialized: boolean;
+  trayHintShown: boolean;
   /** The floating capture widget docked to the top of the screen. */
   showWidget: boolean;
   widgetPosition: { x: number; y: number } | null;
@@ -24,6 +25,10 @@ export interface SettingsView {
   printscreenReservedByWindows: boolean;
 }
 
+/** The settings view changed outside the main window (e.g. from the tray); payload `SettingsView`. */
+export const SETTINGS_VIEW_EVENT = "settings-view";
+/** The tray asks the main window to switch view; payload is the view name. */
+export const NAVIGATE_EVENT = "navigate";
 /** Settings changed outside the main window (e.g. the widget was hidden); payload `Settings`. */
 export const SETTINGS_CHANGED_EVENT = "settings-changed";
 

@@ -1,7 +1,15 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Mutex, thread};
+use std::{
+    collections::BTreeMap,
+    str::FromStr,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState,
 };
@@ -9,11 +17,31 @@ use tauri_plugin_global_shortcut::{
 use crate::{
     capture::{self, CaptureMode},
     settings::{self, Settings, ShortcutAction},
+    tray,
 };
+
+/// The main window replaces its settings view with this event's payload (a `SettingsView`)
+/// when they change outside it, e.g. launch at login from the tray.
+const SETTINGS_VIEW_EVENT: &str = "settings-view";
 
 /// Registration problems per action (e.g. the key is already taken by another app).
 #[derive(Default)]
 pub struct ShortcutErrors(pub Mutex<BTreeMap<ShortcutAction, String>>);
+
+/// Shortcuts switched off from the tray until switched back on (not saved across restarts).
+#[derive(Default)]
+pub struct ShortcutsPaused(AtomicBool);
+
+pub fn is_paused(app: &AppHandle) -> bool {
+    app.state::<ShortcutsPaused>().0.load(Ordering::Relaxed)
+}
+
+pub fn set_paused(app: &AppHandle, paused: bool) {
+    app.state::<ShortcutsPaused>()
+        .0
+        .store(paused, Ordering::Relaxed);
+    register_all(app);
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,10 +81,14 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
     }
 }
 
-/// Registers every configured shortcut, recording the ones that failed.
-pub fn register_all<R: Runtime>(app: &AppHandle<R>) {
+/// Registers every configured shortcut, recording the ones that failed, or none while paused.
+pub fn register_all(app: &AppHandle) {
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
+    if is_paused(app) {
+        tray::refresh(app);
+        return;
+    }
     let mut errors = BTreeMap::new();
     for (action, accel) in settings::get(app).shortcuts {
         if let Err(e) = Shortcut::from_str(&accel)
@@ -68,6 +100,7 @@ pub fn register_all<R: Runtime>(app: &AppHandle<R>) {
         }
     }
     *app.state::<ShortcutErrors>().0.lock().unwrap() = errors;
+    tray::refresh(app);
 }
 
 fn describe_error(accel: &str, error: &str) -> String {
@@ -196,15 +229,24 @@ pub fn pause_shortcuts(app: AppHandle, paused: bool) {
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    change_autostart(&app, enabled)?;
+    Ok(view(&app))
+}
+
+/// Turns launch at login on or off and tells the tray and the main window.
+pub fn change_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let launcher = app.autolaunch();
-    if enabled {
-        launcher.enable().map_err(|e| e.to_string())?;
+    let result = if enabled {
+        launcher.enable()
     } else {
-        launcher.disable().map_err(|e| e.to_string())?;
-    }
-    settings::update(&app, |s| s.autostart_initialized = true)?;
-    Ok(view(&app))
+        launcher.disable()
+    };
+    result.map_err(|e| e.to_string())?;
+    settings::update(app, |s| s.autostart_initialized = true)?;
+    tray::refresh(app);
+    let _ = app.emit_to("main", SETTINGS_VIEW_EVENT, &view(app));
+    Ok(())
 }
 
 /// Turns launch-at-login on the first time a release build runs.
