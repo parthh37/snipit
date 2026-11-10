@@ -9,6 +9,8 @@ import {
   errorMessage,
   NAVIGATE_EVENT,
   SETTINGS_VIEW_EVENT,
+  SETTINGS_CHANGED_EVENT,
+  type Settings as AppSettings,
   type SettingsView,
   type ShortcutAction,
 } from "../../lib/api";
@@ -116,6 +118,9 @@ export default function MainWindow() {
           setView(e.payload as View);
         }
       }),
+      listen<AppSettings>(SETTINGS_CHANGED_EVENT, (e) =>
+        setSettings((view) => view && { ...view, settings: e.payload }),
+      ),
     ];
     return () => {
       for (const sub of subscriptions) void sub.then((off) => off());

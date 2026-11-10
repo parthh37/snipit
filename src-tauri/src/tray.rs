@@ -13,13 +13,14 @@ use crate::{
     capture::{self, CaptureMode},
     gallery,
     settings::{self, ShortcutAction},
-    shortcuts,
+    shortcuts, widget,
 };
 
 const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
 const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
 const MENU_OPEN_FOLDER: &str = "open_folder";
+const MENU_WIDGET: &str = "widget";
 const MENU_PAUSE: &str = "pause";
 const MENU_AUTOSTART: &str = "autostart";
 const MENU_OPEN: &str = "open";
@@ -65,6 +66,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let annotate_clipboard = item(MENU_ANNOTATE_CLIPBOARD, "Annotate clipboard image")?;
     let recent = Submenu::new(app, "Recent captures", true)?;
     let open_folder = item(MENU_OPEN_FOLDER, "Open captures folder")?;
+    let show_widget = CheckMenuItem::with_id(
+        app,
+        MENU_WIDGET,
+        "Show capture widget",
+        true,
+        settings::get(app).show_widget,
+        None::<&str>,
+    )?;
+    app.manage(widget::TrayToggle(show_widget.clone()));
     let pause = check(MENU_PAUSE, "Pause shortcuts")?;
     let autostart = check(MENU_AUTOSTART, "Launch at login")?;
     let open = item(MENU_OPEN, "Open Snipit")?;
@@ -83,6 +93,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             &recent,
             &open_folder,
             &PredefinedMenuItem::separator(app)?,
+            &show_widget,
             &pause,
             &autostart,
             &PredefinedMenuItem::separator(app)?,
@@ -147,6 +158,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         MENU_OPEN_FOLDER => {
             if let Err(err) = gallery::open_gallery_folder(app.clone()) {
                 eprintln!("Couldn't open the captures folder: {err}");
+            }
+        }
+        MENU_WIDGET => {
+            let enabled = !settings::get(app).show_widget;
+            if let Err(err) = widget::set_enabled(app, enabled) {
+                eprintln!("Couldn't change the capture widget setting: {err}");
             }
         }
         MENU_PAUSE => shortcuts::set_paused(app, !shortcuts::is_paused(app)),
