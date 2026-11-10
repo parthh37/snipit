@@ -72,6 +72,8 @@ menu exits.
 
 ## Docs
 
+- [Product page](https://parthh37.github.io/snipit/) — source in [`site/`](site), deployed by
+  the Pages workflow
 - [Product & technical analysis](docs/ANALYSIS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Releasing & auto-update](docs/RELEASING.md)
