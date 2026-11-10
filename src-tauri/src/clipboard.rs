@@ -34,7 +34,7 @@ pub fn read_image() -> Result<Option<RgbaImage>, String> {
 
 /// Copies PNG bytes (the raw request body) to the clipboard as an image.
 #[tauri::command]
-pub fn copy_png(request: Request<'_>) -> Result<(), String> {
+pub async fn copy_png(request: Request<'_>) -> Result<(), String> {
     let InvokeBody::Raw(png) = request.body() else {
         return Err("Expected PNG bytes".into());
     };
@@ -46,7 +46,7 @@ pub fn copy_png(request: Request<'_>) -> Result<(), String> {
 
 /// Returns the clipboard image as PNG bytes; an empty body means there is no image.
 #[tauri::command]
-pub fn paste_image() -> Result<Response, String> {
+pub async fn paste_image() -> Result<Response, String> {
     let png = match read_image()? {
         Some(image) => gallery::encode_png(&image)?,
         None => Vec::new(),

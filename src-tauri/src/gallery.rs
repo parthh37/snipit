@@ -76,7 +76,7 @@ pub struct Snip {
 }
 
 #[tauri::command]
-pub fn list_snips(app: AppHandle) -> Result<Vec<Snip>, String> {
+pub async fn list_snips(app: AppHandle) -> Result<Vec<Snip>, String> {
     let mut snips: Vec<Snip> = fs::read_dir(dir(&app)?)
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
@@ -101,16 +101,47 @@ pub fn list_snips(app: AppHandle) -> Result<Vec<Snip>, String> {
     Ok(snips)
 }
 
+const EDITED_SUFFIX: &str = "_edited";
+
+/// Whether `stem` names an edited copy: `name_edited`, or `name_edited_2` and so on.
+fn is_edited(stem: &str) -> bool {
+    let base = match stem.rsplit_once('_') {
+        Some((base, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => stem,
+    };
+    base.ends_with(EDITED_SUFFIX)
+}
+
+/// Where an edit of `path` is saved. Original captures are never overwritten: the first save
+/// goes to a new `<name>_edited.png` beside it, and later saves update that copy.
+fn edit_target(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match path.parent() {
+        Some(dir) if !is_edited(&stem) => unique_path(dir, &format!("{stem}{EDITED_SUFFIX}")),
+        _ => path.to_path_buf(),
+    }
+}
+
+// The commands below read, decode or write whole images, so they are `async` to keep that work
+// off the main thread (synchronous commands run on it and would freeze every window).
+
 #[tauri::command]
-pub fn read_snip(app: AppHandle, path: String) -> Result<Response, String> {
+pub async fn read_snip(app: AppHandle, path: String) -> Result<Response, String> {
     let path = checked(&app, &path)?;
     fs::read(path).map(Response::new).map_err(|e| e.to_string())
 }
 
-/// Writes PNG bytes (the raw request body) to the snip named in the `x-snip-path`
-/// header, or to a new gallery file when the header is absent. Returns the path.
+/// Writes PNG bytes (the raw request body) for the snip named in the `x-snip-path` header
+/// (see [`edit_target`]), or to a new gallery file when the header is absent. Returns the
+/// path written, which the editor uses for its next save.
 #[tauri::command]
-pub fn save_snip(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<PathBuf, String> {
+pub async fn save_snip(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<PathBuf, String> {
     let tauri::ipc::InvokeBody::Raw(png) = request.body() else {
         return Err("Expected PNG bytes".into());
     };
@@ -121,7 +152,7 @@ pub fn save_snip(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<Pat
         .map(percent_decode);
     match target {
         Some(path) => {
-            let path = checked(&app, &path)?;
+            let path = edit_target(&checked(&app, &path)?);
             fs::write(&path, png).map_err(|e| e.to_string())?;
             Ok(path)
         }
@@ -131,7 +162,7 @@ pub fn save_snip(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<Pat
 
 /// Moves a snip to the Recycle Bin.
 #[tauri::command]
-pub fn delete_snip(app: AppHandle, path: String) -> Result<(), String> {
+pub async fn delete_snip(app: AppHandle, path: String) -> Result<(), String> {
     trash::delete(checked(&app, &path)?).map_err(|e| e.to_string())
 }
 
@@ -186,6 +217,34 @@ mod tests {
         fs::write(&first, b"").unwrap();
         let second = unique_path(&dir, "shot");
         assert_eq!(second.file_name().unwrap(), "shot_2.png");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn recognises_edited_copies() {
+        assert!(is_edited("Snipit_2026-03-07_09-05-02_edited"));
+        assert!(is_edited("Snipit_2026-03-07_09-05-02_edited_3"));
+        assert!(!is_edited("Snipit_2026-03-07_09-05-02"));
+        assert!(!is_edited("Snipit_2026-03-07_09-05-02_2"));
+    }
+
+    #[test]
+    fn edits_never_overwrite_the_original() {
+        let dir = std::env::temp_dir().join(format!("snipit-edit-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("shot.png");
+        fs::write(&original, b"").unwrap();
+
+        let first = edit_target(&original);
+        assert_eq!(first.file_name().unwrap(), "shot_edited.png");
+        fs::write(&first, b"").unwrap();
+        // Saving again from the edited copy updates it in place.
+        assert_eq!(edit_target(&first), first);
+        // Editing the original again (say, in a later session) makes a second copy.
+        assert_eq!(
+            edit_target(&original).file_name().unwrap(),
+            "shot_edited_2.png"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
