@@ -111,3 +111,29 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Snipit");
 }
+
+#[cfg(test)]
+mod tests {
+    /// Without `http://ipc.localhost` in `connect-src`, the webview blocks Tauri's IPC
+    /// protocol and Tauri falls back to `postMessage`, which returns binary command results
+    /// (`read_snip`, `paste_image`) as plain number arrays. The editor then can't decode the
+    /// PNG and shows "Could not load the image" after every capture. Only release builds
+    /// apply the CSP, so this never shows up under `tauri dev`.
+    #[test]
+    fn csp_allows_the_ipc_protocol() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = conf["app"]["security"]["csp"].as_str().unwrap();
+        let connect_src = csp
+            .split(';')
+            .map(str::trim)
+            .find_map(|directive| directive.strip_prefix("connect-src "))
+            .expect("the CSP must set connect-src (default-src 'self' blocks IPC)");
+        let sources: Vec<&str> = connect_src.split_whitespace().collect();
+        assert!(sources.contains(&"ipc:"), "connect-src lacks ipc:");
+        assert!(
+            sources.contains(&"http://ipc.localhost"),
+            "connect-src lacks http://ipc.localhost"
+        );
+    }
+}
