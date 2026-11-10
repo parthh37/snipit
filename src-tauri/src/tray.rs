@@ -13,7 +13,7 @@ use crate::{
     capture::{self, CaptureMode},
     gallery,
     settings::{self, ShortcutAction},
-    shortcuts, widget,
+    shortcuts, updater, widget,
 };
 
 const MENU_CAPTURE: &str = "capture";
@@ -34,8 +34,6 @@ const RECENT_COUNT: usize = 6;
 
 const SCROLLING_LABEL: &str = "Scrolling capture (long page)";
 
-/// Event the main window listens for to run an update check (see `src/windows/main/useUpdater.ts`).
-const EVENT_CHECK_UPDATES: &str = "check-for-updates";
 /// Asks the main window to switch view; payload is the view name (see `MainWindow.tsx`).
 const EVENT_NAVIGATE: &str = "navigate";
 
@@ -55,6 +53,7 @@ pub struct Tray {
     recent_rebuild: Mutex<()>,
     pause: CheckMenuItem<Wry>,
     autostart: CheckMenuItem<Wry>,
+    check_updates: MenuItem<Wry>,
 }
 
 /// Creates the system tray icon. Left click opens the main window; right click shows the menu.
@@ -145,6 +144,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         recent_rebuild: Mutex::default(),
         pause,
         autostart,
+        check_updates,
     });
     refresh(app);
     refresh_recent(app);
@@ -185,8 +185,16 @@ fn on_menu(app: &AppHandle, id: &str) {
         MENU_OPEN => show_main_window(app),
         MENU_SETTINGS => navigate(app, "settings"),
         MENU_CHECK_UPDATES => {
+            // The main window's banner shows the result, or the download's progress.
             show_main_window(app);
-            let _ = app.emit_to("main", EVENT_CHECK_UPDATES, ());
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if updater::is_offered(&app) {
+                    let _ = updater::install(&app).await;
+                } else {
+                    updater::check(&app, true).await;
+                }
+            });
         }
         MENU_QUIT => app.exit(0),
         _ => {
@@ -252,11 +260,27 @@ pub fn refresh(app: &AppHandle) {
         .autostart
         .set_checked(app.autolaunch().is_enabled().unwrap_or(false));
 
-    let _ = tray.icon.set_tooltip(Some(tooltip(
+    let update = updater::status(app);
+    let (update_text, update_enabled) = match &update {
+        updater::UpdateStatus::Available { version, .. } => (update_menu_text(version), true),
+        updater::UpdateStatus::Installing { version, .. } => {
+            (format!("Downloading Snipit {version}…"), false)
+        }
+        updater::UpdateStatus::Checking => ("Checking for updates…".to_owned(), false),
+        _ => ("Check for updates…".to_owned(), true),
+    };
+    let _ = tray.check_updates.set_text(update_text);
+    let _ = tray.check_updates.set_enabled(update_enabled);
+
+    let mut tooltip = tooltip(
         paused,
         key(ShortcutAction::CaptureRegion).as_deref(),
         errors.contains_key(&ShortcutAction::CaptureRegion),
-    )));
+    );
+    if let updater::UpdateStatus::Available { version, .. } = &update {
+        tooltip.push_str(&format!("\nUpdate available: {version}"));
+    }
+    let _ = tray.icon.set_tooltip(Some(tooltip));
     let icon = if paused {
         &tray.paused_icon
     } else {
@@ -274,6 +298,11 @@ fn tooltip(paused: bool, region_key: Option<&str>, region_failed: bool) -> Strin
         (false, Some(key)) => format!("Snipit — running\n{key} to capture"),
         (false, None) => "Snipit — running".into(),
     }
+}
+
+/// The tray menu item that installs a waiting update.
+pub fn update_menu_text(version: &str) -> String {
+    format!("Update to Snipit {version}…")
 }
 
 /// Rebuilds the "Recent captures" submenu from the gallery folder, off the main thread.
