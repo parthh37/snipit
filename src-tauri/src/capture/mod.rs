@@ -22,7 +22,7 @@ use xcap::Monitor;
 use xcap::image::{RgbaImage, imageops};
 
 use crate::settings::{self, AfterCapture};
-use crate::{clipboard, gallery, shortcuts, tray};
+use crate::{clipboard, gallery, shortcuts, tray, widget};
 use geometry::{Point, Rect};
 
 const OVERLAY_PREFIX: &str = "overlay-";
@@ -97,6 +97,15 @@ pub fn start(app: &AppHandle, mode: CaptureMode, settle: bool) {
         if let Err(err) = run(&app, mode, settle) {
             report_error(&app, format!("Capture failed: {err}"));
         }
+        // Interactive captures bring the widget back when their overlays close.
+        let capturing = app
+            .state::<CaptureState>()
+            .0
+            .lock()
+            .is_ok_and(|slot| slot.is_some());
+        if !capturing {
+            widget::restore_after_capture(&app);
+        }
     });
 }
 
@@ -107,6 +116,8 @@ fn run(app: &AppHandle, mode: CaptureMode, settle: bool) -> Result<(), String> {
         return Ok(()); // A capture is already open.
     }
 
+    // The widget is excluded from screen capture, so it can be hidden without waiting.
+    widget::hide_for_capture(app);
     let restore_main = hide_main(app);
     if restore_main {
         thread::sleep(Duration::from_millis(250));
@@ -211,6 +222,7 @@ fn close_overlays(app: &AppHandle) {
             let _ = window.destroy();
         }
     }
+    widget::restore_after_capture(app);
 }
 
 /// Saves the capture to the gallery, then copies it or opens it in the editor, as set in

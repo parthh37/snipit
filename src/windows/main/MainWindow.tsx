@@ -7,6 +7,8 @@ import Gallery from "../../gallery/Gallery";
 import {
   api,
   errorMessage,
+  SETTINGS_CHANGED_EVENT,
+  type Settings as AppSettings,
   type SettingsView,
   type ShortcutAction,
 } from "../../lib/api";
@@ -108,6 +110,9 @@ export default function MainWindow() {
         }
       }),
       listen<string>(ERROR_EVENT, (e) => notify(e.payload)),
+      listen<AppSettings>(SETTINGS_CHANGED_EVENT, (e) =>
+        setSettings((view) => view && { ...view, settings: e.payload }),
+      ),
     ];
     return () => {
       for (const sub of subscriptions) void sub.then((off) => off());

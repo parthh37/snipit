@@ -37,6 +37,15 @@ export default function Settings({ view, onChange, notify }: Props) {
     }
   };
 
+  const setWidgetVisible = async (visible: boolean) => {
+    try {
+      const next = await api.setWidgetVisible(visible);
+      onChange({ ...view, settings: next });
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
   const setAutostart = async (enabled: boolean) => {
     try {
       onChange(await api.setAutostart(enabled));
@@ -97,6 +106,21 @@ export default function Settings({ view, onChange, notify }: Props) {
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
           Every capture is also saved to the gallery.
         </p>
+      </Section>
+
+      <Section
+        title="Capture widget"
+        hint="A small tab at the top of the screen that opens into capture buttons when you point at it. Drag its grip to slide it along the top edge or onto another monitor."
+      >
+        <label className="flex cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.showWidget}
+            onChange={(e) => void setWidgetVisible(e.target.checked)}
+            className="size-4 accent-brand-600"
+          />
+          Show the capture widget on the desktop
+        </label>
       </Section>
 
       <Section title="Startup">

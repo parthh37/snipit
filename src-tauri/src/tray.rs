@@ -1,14 +1,16 @@
 use tauri::{
     AppHandle, Emitter, Manager, Runtime,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
 use crate::capture::{self, CaptureMode};
+use crate::{settings, widget};
 
 const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
 const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
+const MENU_WIDGET: &str = "widget";
 const MENU_OPEN: &str = "open";
 const MENU_CHECK_UPDATES: &str = "check-updates";
 const MENU_QUIT: &str = "quit";
@@ -39,6 +41,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let show_widget = CheckMenuItem::with_id(
+        app,
+        MENU_WIDGET,
+        "Show capture widget",
+        true,
+        settings::get(app).show_widget,
+        None::<&str>,
+    )?;
+    app.manage(widget::TrayToggle(show_widget.clone()));
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Snipit", true, None::<&str>)?;
     let check_updates = MenuItem::with_id(
         app,
@@ -55,6 +66,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             &capture_fullscreen,
             &annotate_clipboard,
             &PredefinedMenuItem::separator(app)?,
+            &show_widget,
             &open,
             &check_updates,
             &PredefinedMenuItem::separator(app)?,
@@ -70,6 +82,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             MENU_CAPTURE => capture::start(app, CaptureMode::Interactive, true),
             MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
             MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
+            MENU_WIDGET => {
+                let enabled = !settings::get(app).show_widget;
+                if let Err(err) = widget::set_enabled(app, enabled) {
+                    eprintln!("Couldn't change the capture widget setting: {err}");
+                }
+            }
             MENU_OPEN => show_main_window(app),
             MENU_CHECK_UPDATES => {
                 show_main_window(app);
