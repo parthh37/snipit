@@ -12,9 +12,13 @@ export interface Settings {
   afterCapture: AfterCapture;
   autostartInitialized: boolean;
   trayHintShown: boolean;
-  /** The floating capture widget docked to the top of the screen. */
+  /** The floating capture widget docked to the top or a side of the screen. */
   showWidget: boolean;
-  widgetPosition: { x: number; y: number } | null;
+  widgetPosition: {
+    edge: "top" | "left" | "right";
+    x: number;
+    y: number;
+  } | null;
 }
 
 export interface SettingsView {
