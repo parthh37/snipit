@@ -98,6 +98,7 @@ pub fn run() {
             shortcuts::set_autostart,
             shortcuts::open_keyboard_settings,
             widget::set_widget_visible,
+            widget::widget_edge,
             widget::widget_set_expanded,
             widget::widget_drag_start,
             widget::widget_drag_move,
