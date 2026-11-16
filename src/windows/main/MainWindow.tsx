@@ -157,7 +157,7 @@ export default function MainWindow() {
   return (
     <main className="flex h-full flex-col">
       <UpdateBanner
-        state={updater.state}
+        state={updater.status}
         onInstall={updater.install}
         onDismiss={updater.dismiss}
       />
@@ -290,10 +290,10 @@ export default function MainWindow() {
               <button
                 type="button"
                 onClick={updater.checkForUpdates}
-                disabled={updater.state.status === "checking"}
+                disabled={updater.checking}
                 className="hover:text-zinc-600 disabled:opacity-60 dark:hover:text-zinc-300"
               >
-                {updater.state.status === "checking"
+                {updater.checking
                   ? "Checking for updates…"
                   : "Check for updates"}
               </button>
