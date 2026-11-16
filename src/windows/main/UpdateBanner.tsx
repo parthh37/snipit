@@ -1,7 +1,7 @@
-import type { UpdaterState } from "./useUpdater";
+import type { UpdateStatus } from "../../lib/api";
 
 interface UpdateBannerProps {
-  state: UpdaterState;
+  state: UpdateStatus;
   onInstall: () => void;
   onDismiss: () => void;
 }
@@ -21,16 +21,16 @@ function UpdateBanner({ state, onInstall, onDismiss }: UpdateBannerProps) {
         {state.status === "available" && (
           <>
             <span className="font-medium">
-              Snipit {state.update.version} is available.
+              Snipit {state.version} is available.
             </span>{" "}
             <span className="text-zinc-500 dark:text-zinc-400">
-              You have {state.update.currentVersion}.
+              You have {state.currentVersion}.
             </span>
           </>
         )}
         {state.status === "installing" &&
           `Downloading Snipit ${state.version}… ${
-            state.progress === undefined
+            state.progress === null
               ? ""
               : `${Math.round(state.progress * 100)}%`
           }`}

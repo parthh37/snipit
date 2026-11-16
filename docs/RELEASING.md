@@ -63,10 +63,15 @@ to push to it; otherwise release from your machine.
 - `plugins.updater` in `src-tauri/tauri.conf.json` points at
   `https://github.com/parthh37/snipit/releases/latest/download/latest.json` and holds the
   **public** key.
-- The app checks 5 s after start and every 6 hours, and on demand from the footer link or
-  the tray menu's **Check for updates…**. When a newer version exists it shows a banner;
-  **Update & restart** downloads it, verifies its signature and runs the installer in
-  passive mode (progress bar, no prompts).
+- The checks run in the Rust core (`src-tauri/src/updater.rs`), not the main window, so they
+  keep working while Snipit sits in the tray. Release builds check 5 s after start and then
+  every 6 hours (30 minutes after a failed check, e.g. no network yet after a launch at
+  login). Settings → **Updates** turns automatic checks off. Dev builds only check on request.
+- Checking by hand: the footer link or the tray menu's **Check for updates…**.
+- When a newer version exists, the main window shows a banner, the tray tooltip says so, and
+  the tray item becomes **Update to Snipit x.y.z…**. If the window is hidden, a notification
+  appears once per version. **Update & restart** (or the tray item) downloads it, verifies
+  its signature and runs the installer in passive mode (progress bar, no prompts).
 - Updater artifacts (`.sig` files) are only produced when building with
   `--config src-tauri/tauri.release.conf.json`, so local and CI builds don't need the key.
 

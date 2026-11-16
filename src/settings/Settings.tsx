@@ -55,6 +55,15 @@ export default function Settings({ view, onChange, notify }: Props) {
     }
   };
 
+  const setAutoCheckUpdates = async (enabled: boolean) => {
+    try {
+      const next = await api.setAutoCheckUpdates(enabled);
+      onChange({ ...view, settings: next });
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
   return (
     <div className="max-w-2xl space-y-8">
       <Section
@@ -133,6 +142,21 @@ export default function Settings({ view, onChange, notify }: Props) {
             className="size-4 accent-brand-600"
           />
           Start Snipit when I sign in to Windows (runs in the system tray)
+        </label>
+      </Section>
+
+      <Section
+        title="Updates"
+        hint="Snipit asks before installing anything. You can always check by hand from the tray menu."
+      >
+        <label className="flex cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.autoCheckUpdates}
+            onChange={(e) => void setAutoCheckUpdates(e.target.checked)}
+            className="size-4 accent-brand-600"
+          />
+          Check for updates automatically
         </label>
       </Section>
     </div>

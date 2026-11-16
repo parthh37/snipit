@@ -4,6 +4,7 @@ mod gallery;
 mod settings;
 mod shortcuts;
 mod tray;
+mod updater;
 mod widget;
 
 use std::sync::Mutex;
@@ -41,7 +42,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -59,6 +59,7 @@ pub fn run() {
         .manage(shortcuts::ShortcutErrors::default())
         .manage(shortcuts::ShortcutsPaused::default())
         .manage(widget::WidgetState::default())
+        .manage(updater::UpdaterState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
@@ -69,6 +70,7 @@ pub fn run() {
             widget::init(handle);
             // Ready the capture overlays now, so the first capture opens as fast as the rest.
             capture::overlays::refill(handle, Duration::ZERO);
+            updater::init(handle);
             let args: Vec<String> = std::env::args().collect();
             let started_capture = handle_args(handle, &args);
             if !started_capture && !args.iter().any(|arg| arg == AUTOSTART_ARG) {
@@ -97,6 +99,10 @@ pub fn run() {
             shortcuts::pause_shortcuts,
             shortcuts::set_autostart,
             shortcuts::open_keyboard_settings,
+            updater::get_update_status,
+            updater::check_for_updates,
+            updater::install_update,
+            updater::set_auto_check_updates,
             widget::set_widget_visible,
             widget::widget_set_expanded,
             widget::widget_drag_start,

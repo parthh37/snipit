@@ -15,7 +15,22 @@ export interface Settings {
   /** The floating capture widget docked to the top of the screen. */
   showWidget: boolean;
   widgetPosition: { x: number; y: number } | null;
+  /** Look for new releases on launch and every few hours. */
+  autoCheckUpdates: boolean;
 }
+
+/** Mirrors `UpdateStatus` in `src-tauri/src/updater.rs`. */
+export type UpdateStatus =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "up-to-date" }
+  | { status: "available"; version: string; currentVersion: string }
+  /** `progress` is 0–1, once the download size is known. */
+  | { status: "installing"; version: string; progress: number | null }
+  | { status: "error"; message: string };
+
+/** The updater's status changed; payload `UpdateStatus`. */
+export const UPDATE_STATUS_EVENT = "update-status";
 
 export interface SettingsView {
   settings: Settings;
@@ -68,6 +83,13 @@ export const api = {
   setWidgetVisible: (visible: boolean) =>
     invoke<Settings>("set_widget_visible", { visible }),
   openMainWindow: () => invoke<void>("open_main_window"),
+
+  getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
+  /** Resolves when the check is done; the result arrives as an `UPDATE_STATUS_EVENT`. */
+  checkForUpdates: () => invoke<void>("check_for_updates"),
+  installUpdate: () => invoke<void>("install_update"),
+  setAutoCheckUpdates: (enabled: boolean) =>
+    invoke<Settings>("set_auto_check_updates", { enabled }),
 };
 
 /** URL for showing a gallery file in an `<img>`; `version` busts the cache after edits. */
