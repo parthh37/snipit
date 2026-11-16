@@ -151,6 +151,7 @@ function ShapeBody({
           hitStrokeWidth={Math.max(12, shape.strokeWidth)}
           fillEnabled={shape.filled}
           opacity={shape.opacity ?? 1}
+          {...shadowProps(shape.shadow, shape.strokeWidth)}
           {...(!shape.filled && dashProps(shape.dash, shape.strokeWidth))}
         />
       );
@@ -167,6 +168,7 @@ function ShapeBody({
           hitStrokeWidth={Math.max(12, shape.strokeWidth)}
           fillEnabled={shape.filled}
           opacity={shape.opacity ?? 1}
+          {...shadowProps(shape.shadow, shape.strokeWidth)}
           {...(!shape.filled && dashProps(shape.dash, shape.strokeWidth))}
         />
       );
@@ -185,6 +187,7 @@ function ShapeBody({
           hitStrokeWidth={Math.max(16, shape.strokeWidth * 2)}
           // A see-through arrow is drawn as one piece, so the head and shaft don't overlap.
           opacity={shape.opacity ?? 1}
+          {...shadowProps(shape.shadow, shape.strokeWidth)}
           {...dashProps(shape.dash, shape.strokeWidth, true)}
         />
       );
@@ -200,6 +203,7 @@ function ShapeBody({
           tension={shape.type === "pen" ? 0.4 : 0}
           hitStrokeWidth={Math.max(16, shape.strokeWidth * 2)}
           opacity={shape.opacity ?? 1}
+          {...shadowProps(shape.shadow, shape.strokeWidth)}
           {...dashProps(shape.dash, shape.strokeWidth, true)}
         />
       );
@@ -292,6 +296,19 @@ function dashProps(
     default:
       return { dashEnabled: false };
   }
+}
+
+/** Konva props for an annotation's optional drop shadow, scaled to its stroke. */
+function shadowProps(on: boolean | undefined, width: number) {
+  if (!on) return { shadowEnabled: false };
+  return {
+    shadowEnabled: true,
+    shadowColor: "#000000",
+    shadowOpacity: 0.35,
+    shadowBlur: Math.max(2, width * 1.2),
+    shadowOffsetX: Math.max(1, width * 0.3),
+    shadowOffsetY: Math.max(1, width * 0.45),
+  };
 }
 
 /** Height of the wrapped text inside a callout bubble. */

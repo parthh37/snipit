@@ -178,3 +178,13 @@ export const CloseIcon = () => (
     <path d="M6 6l12 12M18 6L6 18" />
   </Svg>
 );
+
+/** The editor's side panel. */
+export function PanelIcon() {
+  return (
+    <Svg>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
+    </Svg>
+  );
+}

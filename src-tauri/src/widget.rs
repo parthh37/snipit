@@ -1,6 +1,8 @@
-//! The floating capture widget: a small tab docked to the top edge of a monitor that slides
-//! open on hover with the capture buttons (in the spirit of Snagit's capture widget). It can be
-//! slid along the top edge, including onto another monitor, and remembers where it was left.
+//! The floating capture widget: a small tab docked to the top edge of a monitor that drops
+//! open on hover into a round capture button flanked by a menu and an "open Snipit" button,
+//! with a drawer for picking the capture mode (in the spirit of Snagit's OneClick widget). It
+//! can be slid along the top edge, including onto another monitor, and remembers where it was
+//! left.
 //!
 //! The window is excluded from screen capture and never takes focus, so clicking it leaves the
 //! app you were working in active and the widget never shows up in a snip.
@@ -23,8 +25,33 @@ pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 const COLLAPSE_EVENT: &str = "widget:collapsed";
 
 /// Window sizes in logical pixels; the page lays itself out to fill them.
-const COLLAPSED: (f64, f64) = (76.0, 24.0);
-const EXPANDED: (f64, f64) = (430.0, 78.0);
+const COLLAPSED: (f64, f64) = (64.0, 20.0);
+const OPEN: (f64, f64) = (224.0, 112.0);
+/// Open with the mode list or the menu pulled down underneath.
+const DRAWER: (f64, f64) = (224.0, 268.0);
+
+/// How much of the widget is showing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WidgetLayout {
+    /// Just the tab hanging from the top edge.
+    #[default]
+    Collapsed,
+    /// The capture button and its neighbours.
+    Open,
+    /// Open, plus the drawer underneath.
+    Drawer,
+}
+
+impl WidgetLayout {
+    fn size(self) -> (f64, f64) {
+        match self {
+            WidgetLayout::Collapsed => COLLAPSED,
+            WidgetLayout::Open => OPEN,
+            WidgetLayout::Drawer => DRAWER,
+        }
+    }
+}
 
 /// Top-centre of the widget in physical screen pixels. `y` is the top of the monitor it is
 /// docked to.
@@ -37,7 +64,7 @@ pub struct Anchor {
 #[derive(Default)]
 struct Layout {
     anchor: Option<Anchor>,
-    expanded: bool,
+    layout: WidgetLayout,
     /// Cursor x minus anchor x when a drag started.
     grab_offset: i32,
 }
@@ -72,7 +99,7 @@ fn show(app: &AppHandle) {
             }
         },
     };
-    app.state::<WidgetState>().0.lock().unwrap().expanded = false;
+    app.state::<WidgetState>().0.lock().unwrap().layout = WidgetLayout::Collapsed;
     place(app, &window, None);
     let _ = window.emit_to(LABEL, COLLAPSE_EVENT, ());
     let _ = window.show();
@@ -148,11 +175,11 @@ fn layout_on(
     monitor_x: i32,
     monitor_width: i32,
     scale: f64,
-    expanded: bool,
+    layout: WidgetLayout,
     wanted_x: Option<i32>,
 ) -> (i32, PhysicalSize<u32>, i32) {
     let physical = |logical: f64| (logical * scale).round() as u32;
-    let (w, h) = if expanded { EXPANDED } else { COLLAPSED };
+    let (w, h) = layout.size();
     let size = PhysicalSize::new(physical(w), physical(h));
     let width = size.width as i32;
     let tab_half = physical(COLLAPSED.0) as i32 / 2;
@@ -182,7 +209,7 @@ fn place(app: &AppHandle, window: &WebviewWindow, monitor: Option<Monitor>) {
         mx,
         monitor.size().width as i32,
         monitor.scale_factor(),
-        layout.expanded,
+        layout.layout,
         layout.anchor.map(|a| a.x),
     );
     layout.anchor = Some(Anchor { x: centre, y: my });
@@ -203,9 +230,9 @@ pub async fn set_widget_visible(app: AppHandle, visible: bool) -> Result<Setting
 }
 
 #[tauri::command]
-pub fn widget_set_expanded(app: AppHandle, expanded: bool) {
+pub fn widget_set_layout(app: AppHandle, layout: WidgetLayout) {
     let Some(window) = window(&app) else { return };
-    app.state::<WidgetState>().0.lock().unwrap().expanded = expanded;
+    app.state::<WidgetState>().0.lock().unwrap().layout = layout;
     place(&app, &window, None);
 }
 
@@ -254,19 +281,31 @@ pub fn open_main_window(app: AppHandle) {
     tray::show_main_window(&app);
 }
 
+/// Opens the main window on its Settings page (the widget's menu).
+#[tauri::command]
+pub fn open_settings(app: AppHandle) {
+    tray::navigate(&app, "settings");
+}
+
+/// "Quit Snipit" from the widget's menu, like the tray's.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn defaults_to_top_centre() {
-        let (left, size, centre) = layout_on(0, 1920, 1.0, false, None);
-        assert_eq!((left, size.width, size.height, centre), (922, 76, 24, 960));
+        let (left, size, centre) = layout_on(0, 1920, 1.0, WidgetLayout::Collapsed, None);
+        assert_eq!((left, size.width, size.height, centre), (928, 64, 20, 960));
     }
 
     #[test]
     fn panel_opens_around_the_tab() {
-        let (left, size, centre) = layout_on(0, 1920, 1.0, true, Some(960));
+        let (left, size, centre) = layout_on(0, 1920, 1.0, WidgetLayout::Drawer, Some(960));
         assert_eq!(centre, 960);
         assert_eq!(left + size.width as i32 / 2, 960);
     }
@@ -274,16 +313,16 @@ mod tests {
     #[test]
     fn panel_is_pushed_in_from_the_edge_but_tab_stays() {
         // Tab dragged hard against the right edge of a second monitor.
-        let (left, size, centre) = layout_on(1920, 1920, 1.0, true, Some(5000));
-        assert_eq!(centre, 3840 - 38);
+        let (left, size, centre) = layout_on(1920, 1920, 1.0, WidgetLayout::Open, Some(5000));
+        assert_eq!(centre, 3840 - 32);
         assert_eq!(left + size.width as i32, 3840);
-        let (left, size, _) = layout_on(1920, 1920, 1.0, false, Some(centre));
+        let (left, size, _) = layout_on(1920, 1920, 1.0, WidgetLayout::Collapsed, Some(centre));
         assert_eq!(left + size.width as i32, 3840);
     }
 
     #[test]
     fn scales_with_the_monitor() {
-        let (_, size, _) = layout_on(0, 2560, 1.5, true, None);
-        assert_eq!((size.width, size.height), (645, 117));
+        let (_, size, _) = layout_on(0, 2560, 1.5, WidgetLayout::Open, None);
+        assert_eq!((size.width, size.height), (336, 168));
     }
 }

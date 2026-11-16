@@ -30,6 +30,8 @@ interface Styled {
   dash?: LineStyle;
   /** 0–1. */
   opacity?: number;
+  /** A soft drop shadow under the stroke or fill. */
+  shadow?: boolean;
 }
 
 export interface BoxShape extends Base, Styled {
