@@ -6,9 +6,12 @@ import { annotateClipboard, startCapture } from "../../lib/capture";
 import { acceleratorParts } from "../../settings/shortcutFormat";
 import {
   WIDGET_COLLAPSED_EVENT,
+  WIDGET_EDGE_EVENT,
+  type WidgetEdge,
   widgetDragEnd,
   widgetDragMove,
   widgetDragStart,
+  widgetEdge,
   widgetSetExpanded,
 } from "./widgetApi";
 
@@ -54,13 +57,40 @@ const ACTIONS: {
   },
 ];
 
+/** Classes that differ by the edge the widget hangs from: a row on top, a column on a side. */
+const EDGE_STYLE: Record<
+  WidgetEdge,
+  { panel: string; tab: string; chevron: string; vertical: boolean }
+> = {
+  top: {
+    panel: "flex-row rounded-b-2xl border-t-0 px-1.5 pt-1 pb-1.5",
+    tab: "flex-row rounded-b-xl",
+    chevron: "",
+    vertical: false,
+  },
+  left: {
+    panel: "flex-col rounded-r-2xl border-l-0 py-1.5 pr-1.5 pl-1",
+    tab: "flex-col rounded-r-xl",
+    chevron: "-rotate-90",
+    vertical: true,
+  },
+  right: {
+    panel: "flex-col rounded-l-2xl border-r-0 py-1.5 pr-1 pl-1.5",
+    tab: "flex-col rounded-l-xl",
+    chevron: "rotate-90",
+    vertical: true,
+  },
+};
+
 /**
- * The floating capture widget: a tab hanging from the top of the screen that opens into a
- * small capture toolbar on hover. The Rust side (`widget.rs`) sizes and positions the window.
+ * The floating capture widget: a tab hanging from the top, left or right edge of the screen
+ * that opens into a small capture toolbar on hover. The Rust side (`widget.rs`) sizes and
+ * positions the window and picks the edge.
  */
 export default function Widget() {
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [edge, setEdge] = useState<WidgetEdge>("top");
   const [shortcuts, setShortcuts] = useState<
     Partial<Record<ShortcutAction, string>>
   >({});
@@ -86,6 +116,16 @@ export default function Widget() {
       window.clearTimeout(timer.current);
       setExpanded(false);
     });
+    return () => void off.then((f) => f());
+  }, []);
+
+  useEffect(() => {
+    const off = listen<WidgetEdge>(WIDGET_EDGE_EVENT, (e) =>
+      setEdge(e.payload),
+    );
+    widgetEdge()
+      .then(setEdge)
+      .catch(() => {});
     return () => void off.then((f) => f());
   }, []);
 
@@ -142,28 +182,35 @@ export default function Widget() {
     void widgetDragEnd();
   };
 
+  const style = EDGE_STYLE[edge];
+
+  // The panel keeps the same element tree on every edge, so the grip keeps its pointer
+  // capture when a drag moves the widget from the top to a side or back.
   return (
     <div
-      className="flex h-full w-full justify-center"
+      className="flex h-full w-full items-center justify-center"
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
       onContextMenu={(e) => e.preventDefault()}
     >
       {expanded ? (
-        <div className="widget-panel flex h-full w-full items-stretch gap-1 rounded-b-2xl border border-t-0 px-1.5 pt-1 pb-1.5 text-zinc-700 dark:text-zinc-200">
+        <div
+          data-edge={edge}
+          className={`widget-panel flex h-full w-full items-stretch gap-1 border text-zinc-700 dark:text-zinc-200 ${style.panel}`}
+        >
           <div
             role="separator"
-            aria-label="Drag to move along the top of the screen"
-            title="Drag to move"
+            aria-label="Drag to move along the edge of the screen, or to another edge"
+            title="Drag to move (along this edge, or to the top, left or right)"
             onPointerDown={onGripDown}
             onPointerMove={onGripMove}
             onPointerUp={onGripUp}
             onPointerCancel={onGripUp}
-            className={`flex w-4 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-500/10 dark:text-zinc-500 ${
-              dragging ? "cursor-grabbing" : "cursor-grab"
-            }`}
+            className={`flex shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-500/10 dark:text-zinc-500 ${
+              style.vertical ? "h-4" : "w-4"
+            } ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
           >
-            <GripIcon />
+            <GripIcon className={style.vertical ? "rotate-90" : undefined} />
           </div>
 
           {ACTIONS.map((action) => {
@@ -183,9 +230,15 @@ export default function Widget() {
             );
           })}
 
-          <div className="my-2 w-px shrink-0 bg-zinc-500/20" />
+          <div
+            className={`shrink-0 bg-zinc-500/20 ${style.vertical ? "mx-2 h-px" : "my-2 w-px"}`}
+          />
 
-          <div className="flex w-8 shrink-0 flex-col justify-center gap-1">
+          <div
+            className={`flex shrink-0 justify-center gap-1 ${
+              style.vertical ? "h-8 flex-row" : "w-8 flex-col"
+            }`}
+          >
             <SmallButton
               title="Open Snipit"
               onClick={() => {
@@ -209,10 +262,10 @@ export default function Widget() {
           aria-label="Snipit capture widget"
           title="Snipit — hover to capture"
           onClick={() => void expand()}
-          className="widget-tab flex h-full w-full items-center justify-center gap-1 rounded-b-xl text-white"
+          className={`widget-tab flex h-full w-full items-center justify-center gap-1 text-white ${style.tab}`}
         >
           <LogoIcon />
-          <ChevronIcon />
+          <ChevronIcon className={style.chevron} />
         </button>
       )}
     </div>
@@ -234,7 +287,7 @@ function SmallButton({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="flex h-7 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-500/15 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+      className="flex h-7 min-w-7 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-500/15 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
     >
       {children}
     </button>
@@ -314,9 +367,15 @@ function CloseIcon() {
   );
 }
 
-function GripIcon() {
+function GripIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 6 16" width={6} height={16} aria-hidden>
+    <svg
+      viewBox="0 0 6 16"
+      width={6}
+      height={16}
+      aria-hidden
+      className={className}
+    >
       {[2, 6, 10, 14].flatMap((y) =>
         [1, 5].map((x) => (
           <circle key={`${x}-${y}`} cx={x} cy={y} r={1} fill="currentColor" />
@@ -344,7 +403,7 @@ function LogoIcon() {
   );
 }
 
-function ChevronIcon() {
+function ChevronIcon({ className = "" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -356,7 +415,7 @@ function ChevronIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className="opacity-80"
+      className={`opacity-80 ${className}`}
     >
       <path d="M6 9l6 6 6-6" />
     </svg>

@@ -104,6 +104,7 @@ pub fn run() {
             updater::install_update,
             updater::set_auto_check_updates,
             widget::set_widget_visible,
+            widget::widget_edge,
             widget::widget_set_expanded,
             widget::widget_drag_start,
             widget::widget_drag_move,
