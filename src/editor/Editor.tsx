@@ -47,12 +47,15 @@ import {
   type Tool,
 } from "./types";
 import { useHistory } from "./useHistory";
+import { encodeSnip, type SnipProject } from "./snipFile";
 
 export interface EditorDoc {
   /** Gallery file being edited; `null` until the first save. */
   path: string | null;
   /** PNG bytes of the background image. */
   png: ArrayBuffer;
+  /** The `.snip` saved with an earlier edit: its original image and annotations reopen. */
+  project?: SnipProject | null;
 }
 
 interface Props {
@@ -176,6 +179,56 @@ function trackPointer(
   window.addEventListener("pointerup", up);
 }
 
+/** Longest side of the preview stored in a `.snip`. */
+const THUMBNAIL_SIZE = 400;
+
+function canvasPng(canvas: HTMLCanvasElement) {
+  return new Promise<Uint8Array>((resolve, reject) =>
+    canvas.toBlob(
+      (b) =>
+        b
+          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)), reject)
+          : reject(new Error("Export failed")),
+      "image/png",
+    ),
+  );
+}
+
+function thumbnailOf(canvas: HTMLCanvasElement) {
+  const scale = Math.min(
+    1,
+    THUMBNAIL_SIZE / Math.max(canvas.width, canvas.height, 1),
+  );
+  const thumb = document.createElement("canvas");
+  thumb.width = Math.max(1, Math.round(canvas.width * scale));
+  thumb.height = Math.max(1, Math.round(canvas.height * scale));
+  const ctx = thumb.getContext("2d");
+  if (ctx) {
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+  }
+  return thumb;
+}
+
+/** An `ArrayBuffer` holding exactly `bytes`. */
+const bufferOf = (bytes: Uint8Array): ArrayBuffer =>
+  bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? (bytes.buffer as ArrayBuffer)
+    : (bytes.slice().buffer as ArrayBuffer);
+
+/** Turns a `.snip`'s stored annotations back into editor shapes. */
+async function projectState(project: SnipProject): Promise<DocState> {
+  const shapes = await Promise.all(
+    project.shapes.map(async (stored): Promise<Shape> => {
+      if (stored.type !== "image") return stored;
+      const { asset, ...rest } = stored;
+      const png = bufferOf(project.assets.get(asset)!);
+      return { ...rest, png, image: await loadImage(png) };
+    }),
+  );
+  return { shapes, crop: project.crop };
+}
+
 function loadImage(png: ArrayBuffer) {
   const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -203,6 +256,8 @@ function snap45(dx: number, dy: number) {
 
 export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const [background, setBackground] = useState<HTMLImageElement>();
+  /** The background's PNG bytes, stored in the `.snip` as the untouched original. */
+  const originalRef = useRef<Uint8Array>(new Uint8Array());
   const [path, setPath] = useState<string | null>(doc.path);
   const history = useHistory<DocState>({ shapes: [], crop: null });
   const { shapes, crop } = history.present;
@@ -391,8 +446,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   // ---- export, save, copy -------------------------------------------------
 
-  const exportPng = useCallback(
-    async (region: Area | null) => {
+  /** The image with its annotations, at full resolution, cut to `region`. */
+  const renderCanvas = useCallback(
+    (region: Area | null) => {
       const stage = stageRef.current;
       if (!stage) throw new Error("Editor not ready");
       // Render at the image's own size and scale 1 rather than scaling the on-screen stage
@@ -417,25 +473,34 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         stage.position(onScreen.position);
         uiLayerRef.current?.visible(true);
       }
-      const blob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error("Export failed"))),
-          "image/png",
-        ),
-      );
-      return new Uint8Array(await blob.arrayBuffer());
+      return canvas;
     },
     [iw, ih],
   );
 
+  const exportPng = useCallback(
+    (region: Area | null) => canvasPng(renderCanvas(region)),
+    [renderCanvas],
+  );
+
+  /** Saves the flattened PNG to the gallery and the editable `.snip` project beside it. */
   const save = useCallback(
     async (state: DocState) => {
-      const saved = await api.saveSnip(await exportPng(state.crop), path);
+      const canvas = renderCanvas(state.crop);
+      const project = await encodeSnip({
+        original: originalRef.current,
+        width: iw,
+        height: ih,
+        crop: state.crop,
+        shapes: state.shapes,
+        thumbnail: await canvasPng(thumbnailOf(canvas)),
+      });
+      const saved = await api.saveSnip(await canvasPng(canvas), path, project);
       setPath(saved);
       setSavedDoc(state);
       onSaved();
     },
-    [exportPng, onSaved, path],
+    [renderCanvas, iw, ih, onSaved, path],
   );
 
   const run = useCallback(
@@ -548,13 +613,19 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     let cancelled = false;
     (async () => {
       if (saveRef.current.dirty) await saveRef.current.save().catch(() => {});
-      const image = await loadImage(doc.png);
+      const original = doc.project
+        ? doc.project.original
+        : new Uint8Array(doc.png);
+      const image = await loadImage(bufferOf(original));
+      const state: DocState = doc.project
+        ? await projectState(doc.project)
+        : { shapes: [], crop: null };
       if (cancelled) return;
-      const empty: DocState = { shapes: [], crop: null };
+      originalRef.current = original;
       setBackground(image);
       setPath(doc.path);
-      history.reset(empty);
-      setSavedDoc(empty);
+      history.reset(state);
+      setSavedDoc(state);
       setSelectedId(null);
       editingRef.current = null;
       setEditing(null);
@@ -645,6 +716,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         id: newId(),
         type: "image",
         image,
+        png,
         x: area.x + (area.width - width) / 2,
         y: area.y + (area.height - height) / 2,
         width,

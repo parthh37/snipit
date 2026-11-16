@@ -90,6 +90,8 @@ export interface ObscureShape extends Base {
 export interface ImageShape extends Base {
   type: "image";
   image: HTMLImageElement;
+  /** The image's PNG bytes, kept so a `.snip` can store it. */
+  png: ArrayBuffer;
   width: number;
   height: number;
 }

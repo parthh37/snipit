@@ -94,6 +94,14 @@ export default function Gallery({ refreshKey, onOpen, notify, limit }: Props) {
                 draggable={false}
                 className="absolute inset-0 h-full w-full object-contain"
               />
+              {snip.editable && (
+                <span
+                  title="Annotations can still be edited"
+                  className="absolute top-2 left-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                >
+                  Editable
+                </span>
+              )}
             </button>
             <figcaption className="flex items-center gap-1 px-3 py-2">
               <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 dark:text-zinc-400">

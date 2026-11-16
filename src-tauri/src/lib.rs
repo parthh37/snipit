@@ -89,6 +89,7 @@ pub fn run() {
             clipboard::paste_image,
             gallery::list_snips,
             gallery::read_snip,
+            gallery::read_snip_project,
             gallery::save_snip,
             gallery::delete_snip,
             gallery::reveal_snip,

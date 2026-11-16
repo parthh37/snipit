@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import logo from "../../../assets/icon.svg";
 import Editor, { type EditorDoc } from "../../editor/Editor";
+import { decodeSnip } from "../../editor/snipFile";
 import Gallery from "../../gallery/Gallery";
 import {
   api,
@@ -87,7 +88,20 @@ export default function MainWindow() {
   const openSnip = useCallback(
     async (path: string) => {
       try {
-        setDoc({ path, png: await api.readSnip(path) });
+        const [png, projectBytes] = await Promise.all([
+          api.readSnip(path),
+          api.readSnipProject(path),
+        ]);
+        let project = null;
+        if (projectBytes.byteLength) {
+          try {
+            project = await decodeSnip(new Uint8Array(projectBytes));
+          } catch (e) {
+            // The flattened PNG still opens; only the annotations' editability is lost.
+            notify(`Couldn't reopen the annotations: ${errorMessage(e)}`);
+          }
+        }
+        setDoc({ path, png, project });
       } catch (e) {
         notify(errorMessage(e));
       }
