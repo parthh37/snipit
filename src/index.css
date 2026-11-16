@@ -95,6 +95,29 @@ html.transparent body {
   filter: brightness(1.08);
 }
 
+/* On a side edge the tab stands on end and the disc peeks out sideways. */
+.widget-tab[data-edge="left"] .widget-tab-disc,
+.widget-tab[data-edge="right"] .widget-tab-disc {
+  width: 13px;
+  height: 30px;
+  background: linear-gradient(110deg, #7c5cff, #2e8bff);
+  transition: width 0.15s ease-out;
+}
+
+.widget-tab[data-edge="left"] .widget-tab-disc {
+  border-radius: 0 15px 15px 0;
+}
+
+.widget-tab[data-edge="right"] .widget-tab-disc {
+  border-radius: 15px 0 0 15px;
+}
+
+.widget-tab[data-edge="left"]:hover .widget-tab-disc,
+.widget-tab[data-edge="right"]:hover .widget-tab-disc {
+  height: 30px;
+  width: 15px;
+}
+
 @media (prefers-color-scheme: dark) {
   .widget-tab,
   .widget-card {
@@ -120,9 +143,31 @@ html.transparent body {
   animation: widget-drawer 0.18s ease-out;
 }
 
+.widget-drop[data-edge="left"] {
+  animation-name: widget-slide-left;
+}
+
+.widget-drop[data-edge="right"] {
+  animation-name: widget-slide-right;
+}
+
 @keyframes widget-drop {
   from {
     transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes widget-slide-left {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes widget-slide-right {
+  from {
+    transform: translateX(14px);
     opacity: 0;
   }
 }

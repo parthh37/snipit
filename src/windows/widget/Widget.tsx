@@ -6,6 +6,9 @@ import { annotateClipboard, startCapture } from "../../lib/capture";
 import { acceleratorParts } from "../../settings/shortcutFormat";
 import {
   WIDGET_COLLAPSED_EVENT,
+  WIDGET_EDGE_EVENT,
+  type WidgetEdge,
+  widgetEdge,
   openSettings,
   quitApp,
   widgetDragEnd,
@@ -72,17 +75,34 @@ function savedMode(): Mode {
 
 type Drawer = "modes" | "menu" | null;
 
+/** Classes that differ by the screen edge the widget hangs from. */
+const EDGE_STYLE: Record<WidgetEdge, { card: string; tab: string }> = {
+  top: {
+    card: "mx-1.5 mb-1.5 rounded-b-[20px] border-t-0",
+    tab: "items-start justify-center rounded-b-xl border-t-0",
+  },
+  left: {
+    card: "my-1.5 mr-1.5 rounded-r-[20px] border-l-0",
+    tab: "items-center justify-start rounded-r-xl border-l-0",
+  },
+  right: {
+    card: "my-1.5 ml-1.5 rounded-l-[20px] border-r-0",
+    tab: "items-center justify-end rounded-l-xl border-r-0",
+  },
+};
+
 /**
- * The floating capture widget: a tab hanging from the top of the screen that drops open on
- * hover into a round capture button, with a menu on its left, "open Snipit" on its right and
+ * The floating capture widget: a tab hanging from the top, left or right edge of the screen
+ * that drops open on hover into a round capture button, with a menu on its left, "open Snipit" on its right and
  * a drawer for choosing what the big button captures. The Rust side (`widget.rs`) sizes and
- * positions the window for each state.
+ * positions the window for each state and picks the edge.
  */
 export default function Widget() {
   const [layout, setLayout] = useState<WidgetLayout>("collapsed");
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [mode, setMode] = useState<Mode>(savedMode);
   const [dragging, setDragging] = useState(false);
+  const [edge, setEdge] = useState<WidgetEdge>("top");
   const [shortcuts, setShortcuts] = useState<
     Partial<Record<ShortcutAction, string>>
   >({});
@@ -111,6 +131,16 @@ export default function Widget() {
       setLayout("collapsed");
       setDrawer(null);
     });
+    return () => void off.then((f) => f());
+  }, []);
+
+  useEffect(() => {
+    const off = listen<WidgetEdge>(WIDGET_EDGE_EVENT, (e) =>
+      setEdge(e.payload),
+    );
+    widgetEdge()
+      .then(setEdge)
+      .catch(() => {});
     return () => void off.then((f) => f());
   }, []);
 
@@ -165,7 +195,7 @@ export default function Widget() {
     return accel ? acceleratorParts(accel).join("+") : null;
   };
 
-  // Dragging the panel's background slides the widget along the top edge.
+  // Dragging the panel's background slides the widget along an edge, or onto another one.
   const onDragDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -192,6 +222,7 @@ export default function Widget() {
   };
 
   const mainKeys = keysFor(mode.id);
+  const edgeStyle = EDGE_STYLE[edge];
 
   return (
     <div
@@ -206,7 +237,8 @@ export default function Widget() {
           onPointerMove={onDragMove}
           onPointerUp={onDragUp}
           onPointerCancel={onDragUp}
-          className={`widget-card widget-drop mx-1.5 mb-1.5 flex w-full flex-col items-center rounded-b-[20px] border border-t-0 text-zinc-700 dark:text-zinc-200 ${
+          data-edge={edge}
+          className={`widget-card widget-drop flex w-full flex-col items-center border text-zinc-700 dark:text-zinc-200 ${edgeStyle.card} ${
             dragging ? "cursor-grabbing" : "cursor-grab"
           }`}
         >
@@ -301,7 +333,8 @@ export default function Widget() {
           aria-label="Snipit capture widget"
           title="Snipit — hover to capture"
           onClick={() => void show("open", null)}
-          className="widget-tab flex h-full w-full cursor-pointer items-start justify-center rounded-b-xl border border-t-0"
+          data-edge={edge}
+          className={`widget-tab flex h-full w-full cursor-pointer border ${edgeStyle.tab}`}
         >
           <span className="widget-tab-disc" />
         </button>

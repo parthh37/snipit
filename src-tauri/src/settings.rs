@@ -36,7 +36,7 @@ pub struct Settings {
     pub autostart_initialized: bool,
     /// Set once Snipit has said it keeps running in the tray after the window is closed.
     pub tray_hint_shown: bool,
-    /// Show the floating capture widget docked to the top of the screen.
+    /// Show the floating capture widget docked to an edge of the screen.
     pub show_widget: bool,
     /// Where the widget was last left; `None` means top-centre of the primary monitor.
     pub widget_position: Option<Anchor>,
