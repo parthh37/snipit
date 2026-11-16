@@ -1,6 +1,6 @@
 [package]
 name = "snipit"
-version = "0.3.0"
+version = "1.0.0"
 description = "Screen capture, recording and annotation tool"
 authors = ["parthh37"]
 license = "MIT"
