@@ -33,7 +33,8 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 - [x] Crop (non-destructive, undoable)
 - [ ] Resize image / canvas
 - [ ] Recent captures tray
-- [ ] `.snip` project file (non-destructive) + export PNG/JPG/WebP/PDF
+- [x] `.snip` project file beside each edited PNG: reopening restores the original and every annotation
+- [ ] Export JPG/WebP/PDF
 
 ## M3 — Workflow
 

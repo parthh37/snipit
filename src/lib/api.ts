@@ -37,6 +37,8 @@ export interface Snip {
   name: string;
   modified: number;
   size: number;
+  /** A `.snip` project sits beside it, so its annotations can still be edited. */
+  editable: boolean;
 }
 
 export const api = {
@@ -46,11 +48,23 @@ export const api = {
 
   listSnips: () => invoke<Snip[]>("list_snips"),
   readSnip: (path: string) => invoke<ArrayBuffer>("read_snip", { path }),
-  /** Overwrites `path`, or saves a new snip when it is null. Returns the path. */
-  saveSnip: (png: Uint8Array, path: string | null) =>
-    invoke<string>("save_snip", png, {
-      headers: path ? { "x-snip-path": encodeURIComponent(path) } : {},
-    }),
+  /** The `.snip` project saved beside `path`; empty when it has none. */
+  readSnipProject: (path: string) =>
+    invoke<ArrayBuffer>("read_snip_project", { path }),
+  /**
+   * Saves the flattened PNG as an edit of `path` (or as a new snip when it is null), plus the
+   * `.snip` project beside it. Returns the PNG's path.
+   */
+  saveSnip: (png: Uint8Array, path: string | null, project?: Uint8Array) => {
+    // One request carries both files: the PNG, then the project.
+    const body = project ? concat(png, project) : png;
+    return invoke<string>("save_snip", body, {
+      headers: {
+        ...(path ? { "x-snip-path": encodeURIComponent(path) } : {}),
+        ...(project ? { "x-png-length": String(png.length) } : {}),
+      },
+    });
+  },
   deleteSnip: (path: string) => invoke<void>("delete_snip", { path }),
   revealSnip: (path: string) => invoke<void>("reveal_snip", { path }),
   openGalleryFolder: () => invoke<void>("open_gallery_folder"),
@@ -73,6 +87,13 @@ export const api = {
 /** URL for showing a gallery file in an `<img>`; `version` busts the cache after edits. */
 export function snipUrl(snip: Snip) {
   return `${convertFileSrc(snip.path)}?v=${snip.modified}`;
+}
+
+function concat(a: Uint8Array, b: Uint8Array) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
 }
 
 export function errorMessage(error: unknown) {
