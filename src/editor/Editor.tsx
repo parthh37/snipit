@@ -16,16 +16,19 @@ import {
 } from "react-konva";
 import { api, errorMessage } from "../lib/api";
 import ShapeNode from "./ShapeNode";
+import StylePanel, {
+  type Preset,
+  type ShapeStyle,
+  type Size,
+} from "./StylePanel";
 import {
-  BothEndsIcon,
   CheckIcon,
   CloseIcon,
   CopyIcon,
   FitIcon,
-  LineStyleIcon,
+  PanelIcon,
   PasteIcon,
   RedoIcon,
-  RoundedIcon,
   SaveIcon,
   UndoIcon,
   ToolIcon,
@@ -65,21 +68,32 @@ interface Props {
   notify: (message: string) => void;
 }
 
-const TOOLS: { tool: Tool; label: string; key: string }[] = [
-  { tool: "select", label: "Select", key: "V" },
-  { tool: "arrow", label: "Arrow", key: "A" },
-  { tool: "rect", label: "Rectangle", key: "R" },
-  { tool: "ellipse", label: "Ellipse", key: "E" },
-  { tool: "line", label: "Line", key: "L" },
-  { tool: "pen", label: "Pen", key: "P" },
-  { tool: "highlighter", label: "Highlighter", key: "H" },
-  { tool: "text", label: "Text", key: "T" },
-  { tool: "callout", label: "Text bubble", key: "B" },
-  { tool: "step", label: "Step number", key: "N" },
-  { tool: "pixelate", label: "Pixelate", key: "X" },
-  { tool: "blur", label: "Blur", key: "U" },
-  { tool: "crop", label: "Crop", key: "C" },
+/** `short` is the label under the toolbar icon; `label` goes in the tooltip. */
+const TOOLS: { tool: Tool; label: string; short: string; key: string }[] = [
+  { tool: "select", label: "Select", short: "Select", key: "V" },
+  { tool: "arrow", label: "Arrow", short: "Arrow", key: "A" },
+  { tool: "rect", label: "Rectangle", short: "Rect", key: "R" },
+  { tool: "ellipse", label: "Ellipse", short: "Ellipse", key: "E" },
+  { tool: "line", label: "Line", short: "Line", key: "L" },
+  { tool: "pen", label: "Pen", short: "Pen", key: "P" },
+  { tool: "highlighter", label: "Highlighter", short: "Highlight", key: "H" },
+  { tool: "text", label: "Text", short: "Text", key: "T" },
+  { tool: "callout", label: "Text bubble", short: "Bubble", key: "B" },
+  { tool: "step", label: "Step number", short: "Step", key: "N" },
+  { tool: "pixelate", label: "Pixelate", short: "Pixelate", key: "X" },
+  { tool: "blur", label: "Blur", short: "Blur", key: "U" },
+  { tool: "crop", label: "Crop", short: "Crop", key: "C" },
 ];
+
+/** Whether the Styles & Properties panel is open, remembered between sessions. */
+const PANEL_KEY = "snipit.editor.panel";
+function panelInitiallyOpen() {
+  try {
+    return localStorage.getItem(PANEL_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
 
 const COLORS = [
   "#ef4444",
@@ -94,29 +108,6 @@ const COLORS = [
 
 const HIGHLIGHTER_COLORS = ["#facc15", "#4ade80", "#f472b6", "#60a5fa"];
 
-/** Tools (and shape types) that take a line style and opacity. */
-const STYLED_TOOLS = new Set<string>([
-  "arrow",
-  "line",
-  "pen",
-  "rect",
-  "ellipse",
-]);
-const OPACITIES = [1, 0.75, 0.5, 0.25];
-const LINE_STYLES: LineStyle[] = ["solid", "dashed", "dotted"];
-const nextLineStyle = (s: LineStyle) =>
-  LINE_STYLES[(LINE_STYLES.indexOf(s) + 1) % LINE_STYLES.length];
-
-/** The style controls' values. */
-interface ShapeStyle {
-  filled: boolean;
-  rounded: boolean;
-  dash: LineStyle;
-  bothEnds: boolean;
-  opacity: number;
-}
-
-type Size = "s" | "m" | "l";
 const STROKE = { s: 3, m: 5, l: 9 };
 const FONT = { s: 16, m: 22, l: 32 };
 const STEP_RADIUS = { s: 12, m: 16, l: 22 };
@@ -273,6 +264,11 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const [dash, setDash] = useState<LineStyle>("solid");
   const [bothEnds, setBothEnds] = useState(false);
   const [opacity, setOpacity] = useState(1);
+  const [shadow, setShadow] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(panelInitiallyOpen);
+  /** The Copy button shows a check for a moment after copying. */
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraftState] = useState<Shape | null>(null);
   const [editing, setEditing] = useState<{
@@ -578,7 +574,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       const state = settleCrop();
       await api.copyPng(await exportPng(state.crop));
       if (state !== savedDoc) await save(state);
-      notify("Copied to clipboard");
+      window.clearTimeout(copiedTimer.current);
+      setCopied(true);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
     });
 
   const saveNow = () =>
@@ -658,7 +656,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const selected = shapes.find((s) => s.id === selectedId);
 
   const pickColor = (value: string) => {
-    if (tool === "highlighter") setHighlight(value);
+    if ((selected?.type ?? tool) === "highlighter") setHighlight(value);
     else setColor(value);
     if (!selected) return;
     if (selected.type === "text") update(selected.id, { fill: value });
@@ -679,13 +677,13 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       ? selected
       : undefined;
   const styledSelected = boxSelected ?? pathSelected;
-  const styleTarget = styledSelected?.type ?? tool;
   const style: ShapeStyle = {
     filled: boxSelected ? boxSelected.filled : filled,
     rounded: boxSelected ? !!boxSelected.rounded : rounded,
     dash: styledSelected ? (styledSelected.dash ?? "solid") : dash,
     bothEnds: pathSelected ? !!pathSelected.bothEnds : bothEnds,
     opacity: styledSelected ? (styledSelected.opacity ?? 1) : opacity,
+    shadow: styledSelected ? !!styledSelected.shadow : shadow,
   };
 
   const setStyle = (patch: Partial<ShapeStyle>) => {
@@ -694,8 +692,79 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     if (patch.dash !== undefined) setDash(patch.dash);
     if (patch.bothEnds !== undefined) setBothEnds(patch.bothEnds);
     if (patch.opacity !== undefined) setOpacity(patch.opacity);
+    if (patch.shadow !== undefined) setShadow(patch.shadow);
     if (styledSelected) update(styledSelected.id, patch);
   };
+
+  /** The size of the next shape, and of the selected one. */
+  const sizePatch = (shape: Shape, s: Size): ShapePatch | null => {
+    switch (shape.type) {
+      case "rect":
+      case "ellipse":
+      case "arrow":
+      case "line":
+      case "pen":
+        return { strokeWidth: px(STROKE[s]) };
+      case "highlighter":
+        return { strokeWidth: px(HIGHLIGHT[s]) };
+      case "text":
+        return { fontSize: px(FONT[s]) };
+      case "callout":
+        return { fontSize: px(FONT[s] * 0.8) };
+      case "step":
+        return { radius: px(STEP_RADIUS[s]) };
+      case "pixelate":
+        return { amount: px(PIXEL[s]) };
+      case "blur":
+        return { amount: px(BLUR[s]) };
+      default:
+        return null;
+    }
+  };
+
+  const applySize = (s: Size) => {
+    setSize(s);
+    const patch = selected && sizePatch(selected, s);
+    if (selected && patch) update(selected.id, patch);
+  };
+
+  /** A quick-style tile: colour, size and look in one undo step. */
+  const applyPreset = (p: Preset) => {
+    if ((selected?.type ?? tool) === "highlighter") setHighlight(p.color);
+    else setColor(p.color);
+    setSize(p.size);
+    const look: Partial<ShapeStyle> = {};
+    if (p.dash !== undefined) look.dash = p.dash;
+    if (p.filled !== undefined) look.filled = p.filled;
+    if (p.shadow !== undefined) look.shadow = p.shadow;
+    if (look.dash) setDash(look.dash);
+    if (look.filled !== undefined) setFilled(look.filled);
+    if (look.shadow !== undefined) setShadow(look.shadow);
+    if (!selected) return;
+    const colorPatch: ShapePatch =
+      selected.type === "text" ||
+      selected.type === "callout" ||
+      selected.type === "step"
+        ? { fill: p.color }
+        : "stroke" in selected
+          ? { stroke: p.color }
+          : {};
+    update(selected.id, {
+      ...colorPatch,
+      ...sizePatch(selected, p.size),
+      ...(styledSelected && look),
+    });
+  };
+
+  const togglePanel = () =>
+    setPanelOpen((open) => {
+      try {
+        localStorage.setItem(PANEL_KEY, open ? "closed" : "open");
+      } catch {
+        // Only a preference.
+      }
+      return !open;
+    });
 
   const paste = () =>
     run(async () => {
@@ -844,6 +913,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           filled,
           dash,
           opacity,
+          shadow,
           ...(tool === "rect" && { rounded }),
         });
         break;
@@ -867,6 +937,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           strokeWidth: px(STROKE[size]),
           dash,
           opacity,
+          shadow,
           ...(tool === "arrow" && { bothEnds }),
         });
         break;
@@ -879,6 +950,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           strokeWidth: px(STROKE[size]),
           dash,
           opacity,
+          shadow,
         });
         break;
       case "highlighter":
@@ -1166,8 +1238,16 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   // ---- render ----------------------------------------------------------------
 
-  const activeColor = tool === "highlighter" ? highlight : color;
-  const palette = tool === "highlighter" ? HIGHLIGHTER_COLORS : COLORS;
+  const panelTarget = selected?.type ?? tool;
+  const selectedColor =
+    selected && "stroke" in selected
+      ? selected.stroke
+      : selected && "fill" in selected
+        ? selected.fill
+        : undefined;
+  const activeColor =
+    selectedColor ?? (panelTarget === "highlighter" ? highlight : color);
+  const palette = panelTarget === "highlighter" ? HIGHLIGHTER_COLORS : COLORS;
   const visibleShapes = draft ? [...shapes, draft] : shapes;
   const shown = cropping && cropDraft ? cropDraft : area;
   const cursor = panning
@@ -1178,155 +1258,42 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         ? "default"
         : "crosshair";
 
+  /** Where an image area is on screen, in container pixels. */
+  const toScreen = (a: Area) => ({
+    left: view.x + a.x * view.scale,
+    top: view.y + a.y * view.scale,
+    width: a.width * view.scale,
+    height: a.height * view.scale,
+  });
+  const cropBox = cropping && cropDraft ? toScreen(cropDraft) : null;
+  const sizing =
+    draft &&
+    (draft.type === "rect" ||
+      draft.type === "ellipse" ||
+      draft.type === "pixelate" ||
+      draft.type === "blur") &&
+    draft.width > 0
+      ? draft
+      : null;
+  const sizingBox = sizing ? toScreen(sizing) : null;
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex gap-0.5">
+      <div className="@container flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-zinc-200 bg-white px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mr-auto flex flex-wrap gap-0.5">
           {TOOLS.map((t) => (
-            <IconButton
+            <ToolButton
               key={t.tool}
-              active={tool === t.tool}
+              tool={t.tool}
+              label={t.short}
               title={`${t.label} (${t.key})`}
+              active={tool === t.tool}
               onClick={() => setTool(t.tool)}
-            >
-              <ToolIcon tool={t.tool} />
-            </IconButton>
+            />
           ))}
         </div>
 
-        <Divider />
-
-        {cropping ? (
-          <div className="flex items-center gap-1.5 text-sm">
-            <span className="min-w-24 text-zinc-500 tabular-nums dark:text-zinc-400">
-              {Math.round(shown.width)} × {Math.round(shown.height)}
-            </span>
-            <TextButton
-              title="Select the whole image"
-              onClick={() => setCropDraft(full)}
-            >
-              Reset
-            </TextButton>
-            <TextButton title="Cancel (Esc)" onClick={() => leaveCrop(true)}>
-              Cancel
-            </TextButton>
-            <button
-              type="button"
-              onClick={() => leaveCrop()}
-              title="Apply crop (Enter)"
-              className="flex items-center gap-1 rounded-md bg-brand-600 px-2.5 py-1 font-medium text-white hover:bg-brand-500"
-            >
-              <CheckIcon />
-              Apply
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-              {palette.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  title={c}
-                  onClick={() => pickColor(c)}
-                  className={`size-5 rounded-full border border-black/15 dark:border-white/20 ${
-                    activeColor === c
-                      ? "ring-2 ring-brand-500 ring-offset-1 dark:ring-offset-zinc-900"
-                      : ""
-                  }`}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
-
-            <div className="flex items-center gap-0.5">
-              {(["s", "m", "l"] as const).map((s) => (
-                <IconButton
-                  key={s}
-                  active={size === s}
-                  title={`Size ${s.toUpperCase()}`}
-                  onClick={() => setSize(s)}
-                >
-                  <span
-                    className="rounded-full bg-current"
-                    style={{ width: STROKE[s] + 3, height: STROKE[s] + 3 }}
-                  />
-                </IconButton>
-              ))}
-            </div>
-
-            {STYLED_TOOLS.has(styleTarget) && (
-              <div className="flex items-center gap-0.5">
-                {(styleTarget === "rect" || styleTarget === "ellipse") && (
-                  <IconButton
-                    active={style.filled}
-                    title="Filled shape"
-                    onClick={() => setStyle({ filled: !style.filled })}
-                  >
-                    <span
-                      className="size-3.5 rounded-sm border-2 border-current"
-                      style={{
-                        background: style.filled ? "currentColor" : undefined,
-                      }}
-                    />
-                  </IconButton>
-                )}
-                {styleTarget === "rect" && (
-                  <IconButton
-                    active={style.rounded}
-                    title="Rounded corners"
-                    onClick={() => setStyle({ rounded: !style.rounded })}
-                  >
-                    <RoundedIcon />
-                  </IconButton>
-                )}
-                {!(
-                  (styleTarget === "rect" || styleTarget === "ellipse") &&
-                  style.filled
-                ) && (
-                  <IconButton
-                    title={`Line: ${style.dash} (click for ${nextLineStyle(style.dash)})`}
-                    onClick={() =>
-                      setStyle({ dash: nextLineStyle(style.dash) })
-                    }
-                  >
-                    <LineStyleIcon style={style.dash} />
-                  </IconButton>
-                )}
-                {styleTarget === "arrow" && (
-                  <IconButton
-                    active={style.bothEnds}
-                    title="Arrowhead at both ends"
-                    onClick={() => setStyle({ bothEnds: !style.bothEnds })}
-                  >
-                    <BothEndsIcon />
-                  </IconButton>
-                )}
-                <select
-                  title="Opacity"
-                  aria-label="Opacity"
-                  value={style.opacity}
-                  onChange={(e) => {
-                    setStyle({ opacity: Number(e.target.value) });
-                    // Hand the keyboard back to the tool shortcuts.
-                    e.currentTarget.blur();
-                  }}
-                  className="h-8 rounded-md bg-transparent px-1 text-sm text-zinc-600 tabular-nums hover:bg-zinc-100 dark:text-zinc-300 dark:scheme-dark dark:hover:bg-zinc-800"
-                >
-                  {OPACITIES.map((o) => (
-                    <option key={o} value={o}>
-                      {Math.round(o * 100)}%
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </>
-        )}
-
-        <Divider />
-
-        <div className="flex gap-0.5">
+        <div className="flex shrink-0 gap-0.5">
           <IconButton
             title="Undo (Ctrl+Z)"
             disabled={!history.canUndo}
@@ -1346,16 +1313,20 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           </IconButton>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <Divider />
+
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={() => void copy()}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-60"
+            className={`flex w-[88px] items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors disabled:opacity-60 ${
+              copied ? "bg-emerald-600" : "bg-brand-600 hover:bg-brand-500"
+            }`}
             title="Copy to clipboard (Ctrl+C)"
           >
-            <CopyIcon />
-            Copy
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? "Copied" : "Copy"}
           </button>
           <IconButton
             title="Save to gallery (Ctrl+S)"
@@ -1374,134 +1345,187 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        className="checkerboard relative flex-1 overflow-hidden"
-      >
-        {background && (
-          <>
-            <div
-              className="pointer-events-none absolute shadow-xl"
-              style={{
-                left: view.x + area.x * view.scale,
-                top: view.y + area.y * view.scale,
-                width: area.width * view.scale,
-                height: area.height * view.scale,
-              }}
-            />
-            <Stage
-              ref={stageRef}
-              width={viewport.width}
-              height={viewport.height}
-              x={view.x}
-              y={view.y}
-              scaleX={view.scale}
-              scaleY={view.scale}
-              onMouseDown={onStageMouseDown}
-              style={{ position: "absolute", inset: 0, cursor }}
-            >
-              <Layer
-                clipX={area.x}
-                clipY={area.y}
-                clipWidth={area.width}
-                clipHeight={area.height}
+      <div className="flex min-h-0 flex-1">
+        <div
+          ref={containerRef}
+          className="checkerboard relative flex-1 overflow-hidden"
+        >
+          {background && (
+            <>
+              <div
+                className="pointer-events-none absolute shadow-xl"
+                style={{
+                  left: view.x + area.x * view.scale,
+                  top: view.y + area.y * view.scale,
+                  width: area.width * view.scale,
+                  height: area.height * view.scale,
+                }}
+              />
+              <Stage
+                ref={stageRef}
+                width={viewport.width}
+                height={viewport.height}
+                x={view.x}
+                y={view.y}
+                scaleX={view.scale}
+                scaleY={view.scale}
+                onMouseDown={onStageMouseDown}
+                style={{ position: "absolute", inset: 0, cursor }}
               >
-                <KImage
-                  image={background}
-                  name="background"
-                  listening={false}
-                />
-                {visibleShapes.map((shape) => (
-                  <ShapeNode
-                    key={shape.id}
-                    shape={shape}
-                    background={background}
-                    selectable={
-                      tool === "select" && !spaceHeld && shape !== draft
-                    }
-                    editing={shape.id === editing?.id}
-                    onSelect={setSelectedId}
-                    onChange={update}
-                    onEdit={(id) => {
-                      const s = shapes.find((x) => x.id === id);
-                      if (s && (s.type === "text" || s.type === "callout"))
-                        startEditing(s, history.present);
+                <Layer
+                  clipX={area.x}
+                  clipY={area.y}
+                  clipWidth={area.width}
+                  clipHeight={area.height}
+                >
+                  <KImage
+                    image={background}
+                    name="background"
+                    listening={false}
+                  />
+                  {visibleShapes.map((shape) => (
+                    <ShapeNode
+                      key={shape.id}
+                      shape={shape}
+                      background={background}
+                      selectable={
+                        tool === "select" && !spaceHeld && shape !== draft
+                      }
+                      editing={shape.id === editing?.id}
+                      onSelect={setSelectedId}
+                      onChange={update}
+                      onEdit={(id) => {
+                        const s = shapes.find((x) => x.id === id);
+                        if (s && (s.type === "text" || s.type === "callout"))
+                          startEditing(s, history.present);
+                      }}
+                    />
+                  ))}
+                </Layer>
+
+                {/* Editing chrome: never exported, and not clipped to the crop. */}
+                <Layer ref={uiLayerRef}>
+                  {cropping && cropDraft && (
+                    <CropBox
+                      area={cropDraft}
+                      imageWidth={iw}
+                      imageHeight={ih}
+                      viewRef={viewRef}
+                      onChange={setCropDraft}
+                      onDone={(a) => setCropDraft(clampArea(a))}
+                    />
+                  )}
+                  <Transformer
+                    ref={trRef}
+                    rotateAnchorOffset={24}
+                    anchorSize={9}
+                    anchorCornerRadius={2}
+                    borderStroke="#6c6cff"
+                    anchorStroke="#6c6cff"
+                    ignoreStroke
+                  />
+                  <Transformer
+                    ref={cropTrRef}
+                    rotateEnabled={false}
+                    flipEnabled={false}
+                    keepRatio={false}
+                    borderEnabled={false}
+                    anchorSize={10}
+                    anchorCornerRadius={2}
+                    anchorStroke="#6c6cff"
+                    boundBoxFunc={(oldBox, box) => {
+                      // Absolute (screen) coordinates: keep the box on the image.
+                      const v = viewRef.current;
+                      const left = Math.max(v.x, box.x);
+                      const top = Math.max(v.y, box.y);
+                      const right = Math.min(
+                        v.x + iw * v.scale,
+                        box.x + box.width,
+                      );
+                      const bottom = Math.min(
+                        v.y + ih * v.scale,
+                        box.y + box.height,
+                      );
+                      if (right - left < 8 || bottom - top < 8) return oldBox;
+                      return {
+                        x: left,
+                        y: top,
+                        width: right - left,
+                        height: bottom - top,
+                        rotation: 0,
+                      };
                     }}
                   />
-                ))}
-              </Layer>
+                </Layer>
+              </Stage>
 
-              {/* Editing chrome: never exported, and not clipped to the crop. */}
-              <Layer ref={uiLayerRef}>
-                {cropping && cropDraft && (
-                  <CropBox
-                    area={cropDraft}
-                    imageWidth={iw}
-                    imageHeight={ih}
-                    viewRef={viewRef}
-                    onChange={setCropDraft}
-                    onDone={(a) => setCropDraft(clampArea(a))}
-                  />
-                )}
-                <Transformer
-                  ref={trRef}
-                  rotateAnchorOffset={24}
-                  anchorSize={9}
-                  anchorCornerRadius={2}
-                  borderStroke="#6c6cff"
-                  anchorStroke="#6c6cff"
-                  ignoreStroke
+              {editingShape && (
+                <TextEditor
+                  shape={editingShape}
+                  view={view}
+                  onChange={(text) =>
+                    replaceShapes(
+                      shapes.map((s) =>
+                        s.id === editingShape.id
+                          ? ({ ...s, text } as Shape)
+                          : s,
+                      ),
+                    )
+                  }
+                  onDone={finishEditing}
                 />
-                <Transformer
-                  ref={cropTrRef}
-                  rotateEnabled={false}
-                  flipEnabled={false}
-                  keepRatio={false}
-                  borderEnabled={false}
-                  anchorSize={10}
-                  anchorCornerRadius={2}
-                  anchorStroke="#6c6cff"
-                  boundBoxFunc={(oldBox, box) => {
-                    // Absolute (screen) coordinates: keep the box on the image.
-                    const v = viewRef.current;
-                    const left = Math.max(v.x, box.x);
-                    const top = Math.max(v.y, box.y);
-                    const right = Math.min(
-                      v.x + iw * v.scale,
-                      box.x + box.width,
-                    );
-                    const bottom = Math.min(
-                      v.y + ih * v.scale,
-                      box.y + box.height,
-                    );
-                    if (right - left < 8 || bottom - top < 8) return oldBox;
-                    return {
-                      x: left,
-                      y: top,
-                      width: right - left,
-                      height: bottom - top,
-                      rotation: 0,
-                    };
-                  }}
-                />
-              </Layer>
-            </Stage>
+              )}
+            </>
+          )}
 
-            {editingShape && (
-              <TextEditor
-                shape={editingShape}
-                view={view}
-                onChange={(text) =>
-                  replaceShapes(
-                    shapes.map((s) =>
-                      s.id === editingShape.id ? ({ ...s, text } as Shape) : s,
-                    ),
-                  )
-                }
-                onDone={finishEditing}
-              />
-            )}
-          </>
+          {cropBox && (
+            <CropBar
+              box={cropBox}
+              viewport={viewport}
+              width={Math.round(shown.width)}
+              height={Math.round(shown.height)}
+              onReset={() => setCropDraft(full)}
+              onCancel={() => leaveCrop(true)}
+              onApply={() => leaveCrop()}
+            />
+          )}
+
+          {sizing && sizingBox && (
+            <div
+              className="pointer-events-none absolute rounded bg-zinc-900/85 px-1.5 py-0.5 text-[11px] text-white tabular-nums shadow"
+              style={{
+                left: Math.min(
+                  sizingBox.left + sizingBox.width + 8,
+                  viewport.width - 90,
+                ),
+                top: Math.min(
+                  sizingBox.top + sizingBox.height + 8,
+                  viewport.height - 24,
+                ),
+              }}
+            >
+              {Math.round(sizing.width)} × {Math.round(sizing.height)}
+            </div>
+          )}
+        </div>
+
+        {panelOpen && !cropping && (
+          <StylePanel
+            target={panelTarget}
+            empty={
+              panelTarget === "select" ||
+              panelTarget === "image" ||
+              panelTarget === "crop"
+            }
+            palette={palette}
+            color={activeColor}
+            size={size}
+            style={style}
+            onColor={pickColor}
+            onSize={applySize}
+            onStyle={setStyle}
+            onPreset={applyPreset}
+          />
         )}
       </div>
 
@@ -1534,17 +1558,135 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
             </SmallButton>
           </div>
         </div>
-        <span className="truncate">
+        <span className="min-w-0 truncate">
           {cropping
             ? "Drag to choose the area · Enter: apply · Esc: cancel"
             : "Shift: straight / square · Double-click text to edit · Del: delete · Ctrl+scroll: zoom · Space+drag: pan"}
           {dirty ? " · Unsaved changes" : ""}
         </span>
+        <button
+          type="button"
+          title="Show or hide styles and properties"
+          aria-pressed={panelOpen}
+          onClick={togglePanel}
+          className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 [&_svg]:size-3.5 ${
+            panelOpen
+              ? "text-brand-600 dark:text-brand-500"
+              : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          }`}
+        >
+          <PanelIcon />
+          Properties
+        </button>
       </div>
     </div>
   );
 }
 
+/** Size and actions for the crop, floating just under the crop box. */
+function CropBar({
+  box,
+  viewport,
+  width,
+  height,
+  onReset,
+  onCancel,
+  onApply,
+}: {
+  box: { left: number; top: number; width: number; height: number };
+  viewport: { width: number; height: number };
+  width: number;
+  height: number;
+  onReset: () => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const barWidth = 300;
+  const left = clamp(
+    box.left + box.width / 2 - barWidth / 2,
+    8,
+    Math.max(8, viewport.width - barWidth - 8),
+  );
+  // Below the box when there is room, otherwise tucked inside its bottom edge.
+  const below = box.top + box.height + 10;
+  const top =
+    below + 40 <= viewport.height
+      ? below
+      : Math.max(8, box.top + box.height - 48);
+  return (
+    <div
+      className="absolute flex items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/92 p-1 text-sm text-white shadow-xl"
+      style={{ left, top, width: barWidth }}
+    >
+      <span className="flex-1 px-2 text-xs text-zinc-300 tabular-nums">
+        {width} × {height}
+      </span>
+      <button
+        type="button"
+        title="Select the whole image"
+        onClick={onReset}
+        className="rounded-md px-2 py-1 text-zinc-200 hover:bg-white/10"
+      >
+        Reset
+      </button>
+      <button
+        type="button"
+        title="Cancel (Esc)"
+        onClick={onCancel}
+        className="rounded-md px-2 py-1 text-zinc-200 hover:bg-white/10"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        title="Apply crop (Enter)"
+        onClick={onApply}
+        className="flex items-center gap-1 rounded-md bg-brand-600 px-2.5 py-1 font-medium hover:bg-brand-500"
+      >
+        <CheckIcon />
+        Apply
+      </button>
+    </div>
+  );
+}
+
+/** A toolbar tool: icon, with its name underneath when the window is wide enough. */
+function ToolButton({
+  tool,
+  label,
+  title,
+  active,
+  onClick,
+}: {
+  tool: Tool;
+  label: string;
+  title: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onClick}
+      className={`relative flex h-9 min-w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 transition @[880px]:h-12 @[880px]:min-w-12 ${
+        active
+          ? "bg-brand-500/12 text-brand-600 dark:text-brand-500"
+          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      }`}
+    >
+      <ToolIcon tool={tool} />
+      <span className="hidden text-[10px] leading-none font-medium @[880px]:block">
+        {label}
+      </span>
+      {active && (
+        <span className="absolute inset-x-2.5 bottom-0 h-0.5 rounded-full bg-brand-500" />
+      )}
+    </button>
+  );
+}
 /** The crop box: dims everything outside it, with rule-of-thirds guides. */
 function CropBox({
   area,
@@ -1759,27 +1901,6 @@ function SmallButton({
           ? "text-brand-600 dark:text-brand-500"
           : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
       }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function TextButton({
-  children,
-  title,
-  onClick,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className="rounded-md px-2.5 py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {children}
     </button>

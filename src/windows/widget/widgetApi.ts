@@ -11,9 +11,12 @@ export type WidgetEdge = "top" | "left" | "right";
 /** The edge the widget is docked to now. */
 export const widgetEdge = () => invoke<WidgetEdge>("widget_edge");
 
-/** Resizes the widget window between the tab and the open panel. */
-export const widgetSetExpanded = (expanded: boolean) =>
-  invoke<void>("widget_set_expanded", { expanded });
+/** How much of the widget shows; mirrors `WidgetLayout` in `widget.rs`. */
+export type WidgetLayout = "collapsed" | "open" | "drawer";
+
+/** Resizes the widget window for the tab, the open panel, or the panel with its drawer. */
+export const widgetSetLayout = (layout: WidgetLayout) =>
+  invoke<void>("widget_set_layout", { layout });
 
 /**
  * Dragging slides the widget along an edge and snaps it to the nearest top, left or right
@@ -22,3 +25,6 @@ export const widgetSetExpanded = (expanded: boolean) =>
 export const widgetDragStart = () => invoke<void>("widget_drag_start");
 export const widgetDragMove = () => invoke<void>("widget_drag_move");
 export const widgetDragEnd = () => invoke<void>("widget_drag_end");
+
+export const openSettings = () => invoke<void>("open_settings");
+export const quitApp = () => invoke<void>("quit_app");

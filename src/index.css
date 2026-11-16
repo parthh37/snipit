@@ -29,36 +29,153 @@ html.transparent body {
   background: transparent;
 }
 
-.widget-tab {
-  background: linear-gradient(135deg, #7c5cff, #2e8bff);
-  box-shadow:
-    0 2px 6px rgb(46 60 160 / 0.35),
-    inset 0 -1px 0 rgb(255 255 255 / 0.18);
+/* The capture widget. Its tab and card hang from the top edge of the screen. */
+.widget-tab,
+.widget-card {
+  background: #fff;
+  border-color: rgb(24 24 27 / 0.12);
+  box-shadow: 0 3px 8px rgb(20 20 40 / 0.18);
 }
 
-.widget-tab:hover {
+/* The bottom half of the capture button, peeking out under the screen edge. */
+.widget-tab-disc {
+  width: 30px;
+  height: 13px;
+  border-radius: 0 0 15px 15px;
+  background: linear-gradient(160deg, #7c5cff, #2e8bff);
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.25);
+  transition: height 0.15s ease-out;
+}
+
+.widget-tab:hover .widget-tab-disc {
+  height: 15px;
+}
+
+/* The big round button: a ring around a gradient disc. */
+.widget-capture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgb(24 24 27 / 0.12),
+    0 2px 6px rgb(46 60 160 / 0.25);
+  cursor: pointer;
+  transition:
+    box-shadow 0.15s,
+    transform 0.1s;
+}
+
+.widget-capture:hover {
+  box-shadow:
+    0 0 0 2px #6c6cff,
+    0 3px 10px rgb(46 60 160 / 0.35);
+}
+
+.widget-capture:active {
+  transform: scale(0.95);
+}
+
+.widget-capture-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  color: #fff;
+  background: linear-gradient(160deg, #7c5cff, #2e8bff);
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.12);
+}
+
+.widget-capture:hover .widget-capture-disc {
   filter: brightness(1.08);
 }
 
-.widget-panel {
-  background: #fff;
-  border-color: rgb(24 24 27 / 0.12);
-  box-shadow: inset 0 3px 0 -1px #6c6cff;
+/* On a side edge the tab stands on end and the disc peeks out sideways. */
+.widget-tab[data-edge="left"] .widget-tab-disc,
+.widget-tab[data-edge="right"] .widget-tab-disc {
+  width: 13px;
+  height: 30px;
+  background: linear-gradient(110deg, #7c5cff, #2e8bff);
+  transition: width 0.15s ease-out;
 }
 
-/* The accent line runs along the screen edge the widget is docked to. */
-.widget-panel[data-edge="left"] {
-  box-shadow: inset 3px 0 0 -1px #6c6cff;
+.widget-tab[data-edge="left"] .widget-tab-disc {
+  border-radius: 0 15px 15px 0;
 }
 
-.widget-panel[data-edge="right"] {
-  box-shadow: inset -3px 0 0 -1px #6c6cff;
+.widget-tab[data-edge="right"] .widget-tab-disc {
+  border-radius: 15px 0 0 15px;
+}
+
+.widget-tab[data-edge="left"]:hover .widget-tab-disc,
+.widget-tab[data-edge="right"]:hover .widget-tab-disc {
+  height: 30px;
+  width: 15px;
 }
 
 @media (prefers-color-scheme: dark) {
-  .widget-panel {
+  .widget-tab,
+  .widget-card {
     background: #1c1c20;
     border-color: rgb(255 255 255 / 0.1);
+    box-shadow: 0 3px 10px rgb(0 0 0 / 0.5);
+  }
+
+  .widget-capture {
+    background: #1c1c20;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.12),
+      0 2px 8px rgb(0 0 0 / 0.5);
+  }
+}
+
+/* Opening drops the card down from the screen edge; the drawer slides out under it. */
+.widget-drop {
+  animation: widget-drop 0.22s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+.widget-drawer {
+  animation: widget-drawer 0.18s ease-out;
+}
+
+.widget-drop[data-edge="left"] {
+  animation-name: widget-slide-left;
+}
+
+.widget-drop[data-edge="right"] {
+  animation-name: widget-slide-right;
+}
+
+@keyframes widget-drop {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes widget-slide-left {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes widget-slide-right {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+}
+
+@keyframes widget-drawer {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
   }
 }
 

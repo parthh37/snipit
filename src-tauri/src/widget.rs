@@ -1,6 +1,7 @@
 //! The floating capture widget: a small tab docked to the top, left or right edge of a monitor
-//! that slides open on hover with the capture buttons (in the spirit of Snagit's capture
-//! widget). Dragging it slides it along an edge and snaps it to whichever edge of whichever
+//! that drops open on hover into a round capture button flanked by a menu and an "open
+//! Snipit" button, with a drawer for picking the capture mode (in the spirit of Snagit's
+//! OneClick widget). Dragging it slides it along an edge and snaps it to whichever edge of whichever
 //! monitor the cursor is nearest, and it remembers where it was left.
 //!
 //! The window is excluded from screen capture and never takes focus, so clicking it leaves the
@@ -25,11 +26,25 @@ const COLLAPSE_EVENT: &str = "widget:collapsed";
 /// Tells the widget page which edge it is docked to now; payload is `Edge`.
 const EDGE_EVENT: &str = "widget:edge";
 
-/// Window sizes in logical pixels, as (width, height) when docked to the top edge. On a side
-/// edge the tab is turned on its side and the panel becomes a column.
-const TAB: (f64, f64) = (76.0, 24.0);
-const ROW_PANEL: (f64, f64) = (430.0, 78.0);
-const COLUMN_PANEL: (f64, f64) = (78.0, 330.0);
+/// Window sizes in logical pixels, as (width, height). The tab is given for the top edge and
+/// turned on its side on a left or right edge; the open card is the same on every edge.
+const TAB: (f64, f64) = (64.0, 20.0);
+const OPEN: (f64, f64) = (224.0, 112.0);
+/// Open with the mode list or the menu pulled out underneath.
+const DRAWER: (f64, f64) = (224.0, 268.0);
+
+/// How much of the widget is showing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WidgetLayout {
+    /// Just the tab hanging from the edge.
+    #[default]
+    Collapsed,
+    /// The capture button and its neighbours.
+    Open,
+    /// Open, plus the drawer underneath.
+    Drawer,
+}
 
 /// While dragging, the widget only jumps to another edge once that edge is this much closer
 /// to the cursor (logical px), so sliding along an edge near a corner doesn't flicker.
@@ -109,7 +124,7 @@ impl Area {
 #[derive(Default)]
 struct Layout {
     anchor: Option<Anchor>,
-    expanded: bool,
+    layout: WidgetLayout,
     /// Logical distance along the edge from the window's leading side (left on the top
     /// edge, top on a side) to the cursor when a drag started.
     grab: f64,
@@ -147,7 +162,7 @@ fn show(app: &AppHandle) {
             }
         },
     };
-    app.state::<WidgetState>().0.lock().unwrap().expanded = false;
+    app.state::<WidgetState>().0.lock().unwrap().layout = WidgetLayout::Collapsed;
     place(app, &window, None);
     let _ = window.emit_to(LABEL, COLLAPSE_EVENT, ());
     let _ = window.show();
@@ -224,12 +239,12 @@ fn primary_monitor(app: &AppHandle) -> Option<Monitor> {
 }
 
 /// The window's physical size docked to `edge`.
-fn window_size(edge: Edge, expanded: bool, scale: f64) -> PhysicalSize<u32> {
-    let (w, h) = match (edge, expanded) {
-        (Edge::Top, false) => TAB,
-        (Edge::Top, true) => ROW_PANEL,
-        (_, false) => (TAB.1, TAB.0),
-        (_, true) => COLUMN_PANEL,
+fn window_size(edge: Edge, layout: WidgetLayout, scale: f64) -> PhysicalSize<u32> {
+    let (w, h) = match (edge, layout) {
+        (Edge::Top, WidgetLayout::Collapsed) => TAB,
+        (_, WidgetLayout::Collapsed) => (TAB.1, TAB.0),
+        (_, WidgetLayout::Open) => OPEN,
+        (_, WidgetLayout::Drawer) => DRAWER,
     };
     let physical = |logical: f64| (logical * scale).round() as u32;
     PhysicalSize::new(physical(w), physical(h))
@@ -253,12 +268,12 @@ fn layout_on(
     area: Area,
     scale: f64,
     edge: Edge,
-    expanded: bool,
+    layout: WidgetLayout,
     wanted: Option<i32>,
 ) -> (PhysicalPosition<i32>, PhysicalSize<u32>, Anchor) {
-    let size = window_size(edge, expanded, scale);
+    let size = window_size(edge, layout, scale);
     let length = length_along(edge, size);
-    let tab_half = length_along(edge, window_size(edge, false, scale)) / 2;
+    let tab_half = length_along(edge, window_size(edge, WidgetLayout::Collapsed, scale)) / 2;
     let (start, end) = match edge {
         Edge::Top => (area.x, area.right()),
         Edge::Left | Edge::Right => (area.y, area.bottom()),
@@ -320,7 +335,7 @@ fn place(app: &AppHandle, window: &WebviewWindow, monitor: Option<Monitor>) {
         Area::work_area(&monitor),
         monitor.scale_factor(),
         edge,
-        layout.expanded,
+        layout.layout,
         wanted,
     );
     layout.anchor = Some(anchor);
@@ -355,9 +370,9 @@ pub fn widget_edge(app: AppHandle) -> Edge {
 }
 
 #[tauri::command]
-pub fn widget_set_expanded(app: AppHandle, expanded: bool) {
+pub fn widget_set_layout(app: AppHandle, layout: WidgetLayout) {
     let Some(window) = window(&app) else { return };
-    app.state::<WidgetState>().0.lock().unwrap().expanded = expanded;
+    app.state::<WidgetState>().0.lock().unwrap().layout = layout;
     place(&app, &window, None);
 }
 
@@ -395,9 +410,9 @@ pub fn widget_drag_move(app: AppHandle) {
         let mut layout = state.0.lock().unwrap();
         let current = layout.anchor.map_or(Edge::Top, |a| a.edge);
         let edge = nearest_edge(area, cx, cy, current, (SNAP_BIAS * scale).round() as i32);
-        // Keep the grip under the cursor; it sits at the leading end of both the row and the
-        // column, so the same grab works after jumping between the top and a side.
-        let length = length_along(edge, window_size(edge, layout.expanded, scale));
+        // Keep the spot that was grabbed under the cursor, clamped to the window's length
+        // along the new edge after jumping between the top and a side.
+        let length = length_along(edge, window_size(edge, layout.layout, scale));
         let grab = ((layout.grab * scale).round() as i32).min(length - 1);
         let cursor_along = if edge == Edge::Top { cx } else { cy };
         layout.anchor = Some(Anchor::new(edge, area, cursor_along - grab + length / 2));
@@ -416,6 +431,18 @@ pub fn widget_drag_end(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn open_main_window(app: AppHandle) {
     tray::show_main_window(&app);
+}
+
+/// Opens the main window on its Settings page (the widget's menu).
+#[tauri::command]
+pub fn open_settings(app: AppHandle) {
+    tray::navigate(&app, "settings");
+}
+
+/// "Quit Snipit" from the widget's menu, like the tray's.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[cfg(test)]
@@ -438,8 +465,8 @@ mod tests {
 
     #[test]
     fn defaults_to_top_centre() {
-        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Top, false, None);
-        assert_eq!((pos.x, pos.y, size.width, size.height), (922, 0, 76, 24));
+        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Top, WidgetLayout::Collapsed, None);
+        assert_eq!((pos.x, pos.y, size.width, size.height), (928, 0, 64, 20));
         assert_eq!(
             anchor,
             Anchor {
@@ -452,7 +479,7 @@ mod tests {
 
     #[test]
     fn panel_opens_around_the_tab() {
-        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Top, true, Some(960));
+        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Top, WidgetLayout::Open, Some(960));
         assert_eq!(anchor.along(), 960);
         assert_eq!(pos.x + size.width as i32 / 2, 960);
     }
@@ -460,24 +487,30 @@ mod tests {
     #[test]
     fn panel_is_pushed_in_from_the_edge_but_tab_stays() {
         // Tab dragged hard against the right edge of a second monitor.
-        let (pos, size, anchor) = layout_on(SECOND, 1.0, Edge::Top, true, Some(5000));
-        assert_eq!(anchor.x, 3840 - 38);
+        let (pos, size, anchor) = layout_on(SECOND, 1.0, Edge::Top, WidgetLayout::Open, Some(5000));
+        assert_eq!(anchor.x, 3840 - 32);
         assert_eq!(pos.x + size.width as i32, 3840);
-        let (pos, size, _) = layout_on(SECOND, 1.0, Edge::Top, false, Some(anchor.x));
+        let (pos, size, _) = layout_on(
+            SECOND,
+            1.0,
+            Edge::Top,
+            WidgetLayout::Collapsed,
+            Some(anchor.x),
+        );
         assert_eq!(pos.x + size.width as i32, 3840);
     }
 
     #[test]
     fn scales_with_the_monitor() {
-        let (_, size, _) = layout_on(FHD, 1.5, Edge::Top, true, None);
-        assert_eq!((size.width, size.height), (645, 117));
+        let (_, size, _) = layout_on(FHD, 1.5, Edge::Top, WidgetLayout::Open, None);
+        assert_eq!((size.width, size.height), (336, 168));
     }
 
     #[test]
-    fn docks_to_the_left_edge_as_a_column() {
-        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Left, false, None);
-        assert_eq!((size.width, size.height), (24, 76));
-        assert_eq!((pos.x, pos.y), (0, 516 - 38));
+    fn docks_to_the_left_edge() {
+        let (pos, size, anchor) = layout_on(FHD, 1.0, Edge::Left, WidgetLayout::Collapsed, None);
+        assert_eq!((size.width, size.height), (20, 64));
+        assert_eq!((pos.x, pos.y), (0, 516 - 32));
         assert_eq!(
             anchor,
             Anchor {
@@ -486,22 +519,23 @@ mod tests {
                 y: 516
             }
         );
-        let (pos, size, _) = layout_on(FHD, 1.0, Edge::Left, true, Some(516));
-        assert_eq!((size.width, size.height), (78, 330));
+        let (pos, size, _) = layout_on(FHD, 1.0, Edge::Left, WidgetLayout::Open, Some(516));
+        assert_eq!((size.width, size.height), (224, 112));
         assert_eq!((pos.x, pos.y + size.height as i32 / 2), (0, 516));
     }
 
     #[test]
     fn docks_to_the_right_edge_of_the_second_monitor() {
-        let (pos, size, anchor) = layout_on(SECOND, 1.0, Edge::Right, true, Some(-50));
+        let (pos, size, anchor) =
+            layout_on(SECOND, 1.0, Edge::Right, WidgetLayout::Open, Some(-50));
         // Flush with the right edge, pushed down from the top corner.
         assert_eq!(pos.x + size.width as i32, 3840);
         assert_eq!(pos.y, 0);
-        assert_eq!(anchor.y, 38);
+        assert_eq!(anchor.y, 32);
         // The anchor stays on the monitor it is docked to.
         assert_eq!(anchor.x, 3839);
         // And never runs onto the taskbar.
-        let (pos, size, _) = layout_on(SECOND, 1.0, Edge::Right, true, Some(5000));
+        let (pos, size, _) = layout_on(SECOND, 1.0, Edge::Right, WidgetLayout::Open, Some(5000));
         assert_eq!(pos.y + size.height as i32, 1032);
     }
 
@@ -513,11 +547,11 @@ mod tests {
             width: 2560,
             height: 1400,
         };
-        let (pos, size, anchor) = layout_on(area, 1.25, Edge::Left, false, None);
+        let (pos, size, anchor) = layout_on(area, 1.25, Edge::Left, WidgetLayout::Collapsed, None);
         assert_eq!(pos.x, -2560);
         assert_eq!(pos.y + size.height as i32 / 2, 300);
         assert_eq!((anchor.x, anchor.y), (-2560, 300));
-        let (pos, _, _) = layout_on(area, 1.25, Edge::Top, false, None);
+        let (pos, _, _) = layout_on(area, 1.25, Edge::Top, WidgetLayout::Collapsed, None);
         assert_eq!(pos.y, -400);
     }
 

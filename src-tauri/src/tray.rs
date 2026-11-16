@@ -432,7 +432,7 @@ pub fn hint_still_running(app: &AppHandle) {
     }
 }
 
-fn navigate(app: &AppHandle, view: &str) {
+pub fn navigate(app: &AppHandle, view: &str) {
     show_main_window(app);
     let _ = app.emit_to("main", EVENT_NAVIGATE, view);
 }
