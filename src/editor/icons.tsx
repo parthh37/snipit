@@ -81,11 +81,45 @@ const toolIcons: Record<Tool, ReactNode> = {
       <path d="M9.5 15a2.5 2.5 0 002.5 2.5" />
     </Svg>
   ),
+  magnify: (
+    <Svg>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M15.5 15.5L21 21M8 10.5h5M10.5 8v5" />
+    </Svg>
+  ),
+  spotlight: (
+    <Svg>
+      <path d="M3 3h18v18H3z" strokeOpacity={0.45} />
+      <circle cx="12" cy="12" r="5" />
+    </Svg>
+  ),
   crop: (
     <Svg>
       <path d="M6 2v14a2 2 0 002 2h14M2 6h14a2 2 0 012 2v14" />
     </Svg>
   ),
+};
+
+export const EffectsIcon = () => (
+  <Svg>
+    <rect x="5" y="5" width="14" height="14" rx="1" />
+    <path d="M8 21h11a2 2 0 002-2V8" strokeOpacity={0.5} />
+  </Svg>
+);
+
+export const TornIcon = ({
+  side,
+}: {
+  side: "top" | "right" | "bottom" | "left";
+}) => {
+  const rotate = { top: 180, right: 270, bottom: 0, left: 90 }[side];
+  return (
+    <Svg>
+      <g transform={`rotate(${rotate} 12 12)`}>
+        <path d="M5 4h14v11l-2.3 2-2.4-2-2.3 2-2.3-2-2.4 2L5 15z" />
+      </g>
+    </Svg>
+  );
 };
 
 export function ToolIcon({ tool }: { tool: Tool }) {

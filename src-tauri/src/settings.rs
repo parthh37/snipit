@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, fs, path::PathBuf, sync::Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
+use crate::capture::{CaptureMode, geometry::Rect};
 use crate::widget::Anchor;
 
 /// Things a global shortcut can trigger.
@@ -13,6 +14,7 @@ pub enum ShortcutAction {
     CaptureFullscreen,
     CaptureScrolling,
     AnnotateClipboard,
+    RepeatLastCapture,
 }
 
 /// What happens to a finished capture when no explicit choice was made
@@ -23,6 +25,68 @@ pub enum AfterCapture {
     #[default]
     Edit,
     Copy,
+    /// Only save it to the gallery.
+    Save,
+}
+
+/// Light or dark windows; `System` follows Windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// Delays a capture may wait before freezing the screen, in seconds.
+pub const CAPTURE_DELAYS: [u32; 4] = [0, 3, 5, 10];
+
+pub const DEFAULT_FILENAME_TEMPLATE: &str = "Snipit_{date}_{time}";
+
+/// The area of the most recent capture, so it can be captured again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastCapture {
+    /// `Interactive` (a region or window), `Fullscreen` or `Scrolling`.
+    pub mode: CaptureMode,
+    /// Global screen coordinates in physical pixels.
+    pub rect: Rect,
+}
+
+/// A named capture recipe: what to capture, how, which effects to add and where it goes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturePreset {
+    pub id: String,
+    pub name: String,
+    pub mode: CaptureMode,
+    /// Seconds to wait before capturing (one of [`CAPTURE_DELAYS`]).
+    #[serde(default)]
+    pub delay: u32,
+    /// Include the mouse pointer.
+    #[serde(default)]
+    pub cursor: bool,
+    /// Image effects (border, shadow, torn edges), drawn by the editor's renderer. The shape
+    /// is `Effects` in `src/editor/effects.ts`; Rust only passes it along.
+    #[serde(default)]
+    pub effects: serde_json::Value,
+    #[serde(default)]
+    pub after: AfterCapture,
+    /// Global shortcut, in the same format as `Settings::shortcuts`.
+    #[serde(default)]
+    pub shortcut: Option<String>,
+}
+
+impl CapturePreset {
+    /// Whether there are effects to apply: anything but `null` or an empty object.
+    pub fn has_effects(&self) -> bool {
+        match &self.effects {
+            serde_json::Value::Null => false,
+            serde_json::Value::Object(map) => !map.is_empty(),
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +106,17 @@ pub struct Settings {
     pub widget_position: Option<Anchor>,
     /// Look for new releases on launch and every few hours (release builds only).
     pub auto_check_updates: bool,
+    /// Where snips are saved; `None` means `Pictures\Snipit`.
+    pub output_folder: Option<PathBuf>,
+    /// Name for new snips, without the extension (see `gallery::format_name`).
+    pub filename_template: String,
+    pub theme: Theme,
+    /// Seconds every capture waits before freezing the screen (one of [`CAPTURE_DELAYS`]).
+    pub capture_delay: u32,
+    /// Draw the mouse pointer into captures.
+    pub capture_cursor: bool,
+    pub last_capture: Option<LastCapture>,
+    pub presets: Vec<CapturePreset>,
 }
 
 impl Default for Settings {
@@ -61,6 +136,13 @@ impl Default for Settings {
             show_widget: true,
             widget_position: None,
             auto_check_updates: true,
+            output_folder: None,
+            filename_template: DEFAULT_FILENAME_TEMPLATE.into(),
+            theme: Theme::default(),
+            capture_delay: 0,
+            capture_cursor: false,
+            last_capture: None,
+            presets: Vec::new(),
         }
     }
 }
@@ -110,6 +192,40 @@ pub fn set_after_capture(app: AppHandle, mode: AfterCapture) -> Result<Settings,
     update(&app, |s| s.after_capture = mode)
 }
 
+/// Switches every window (and the tray menu) between light and dark. The web views follow
+/// along, so `prefers-color-scheme` in the pages matches.
+pub fn apply_theme<R: Runtime>(app: &AppHandle<R>, theme: Theme) {
+    app.set_theme(match theme {
+        Theme::System => None,
+        Theme::Light => Some(tauri::Theme::Light),
+        Theme::Dark => Some(tauri::Theme::Dark),
+    });
+}
+
+#[tauri::command]
+pub fn set_theme(app: AppHandle, theme: Theme) -> Result<Settings, String> {
+    let next = update(&app, |s| s.theme = theme)?;
+    apply_theme(&app, theme);
+    Ok(next)
+}
+
+#[tauri::command]
+pub fn set_capture_options(app: AppHandle, delay: u32, cursor: bool) -> Result<Settings, String> {
+    check_delay(delay)?;
+    update(&app, |s| {
+        s.capture_delay = delay;
+        s.capture_cursor = cursor;
+    })
+}
+
+pub fn check_delay(delay: u32) -> Result<(), String> {
+    if CAPTURE_DELAYS.contains(&delay) {
+        Ok(())
+    } else {
+        Err(format!("Unsupported delay: {delay} s"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +237,10 @@ mod tests {
         assert!(settings.show_widget);
         assert_eq!(settings.widget_position, None);
         assert!(settings.auto_check_updates);
+        assert_eq!(settings.filename_template, DEFAULT_FILENAME_TEMPLATE);
+        assert_eq!(settings.theme, Theme::System);
+        assert_eq!(settings.capture_delay, 0);
+        assert!(settings.presets.is_empty());
         assert_eq!(
             settings
                 .shortcuts
@@ -131,5 +251,33 @@ mod tests {
 
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains(r#""captureRegion":"PrintScreen""#));
+    }
+
+    #[test]
+    fn presets_round_trip_and_know_their_effects() {
+        let json = r#"{"presets":[
+            {"id":"a","name":"Bordered","mode":"interactive","effects":{"shadow":true},"after":"copy"},
+            {"id":"b","name":"Plain","mode":"fullscreen","effects":{}}
+        ]}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        let [a, b] = &settings.presets[..] else {
+            panic!("expected two presets")
+        };
+        assert_eq!(a.after, AfterCapture::Copy);
+        assert!(a.has_effects());
+        assert_eq!(b.mode, CaptureMode::Fullscreen);
+        assert_eq!(b.after, AfterCapture::Edit);
+        assert_eq!(b.delay, 0);
+        assert!(!b.has_effects());
+        let again: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(again.presets, settings.presets);
+    }
+
+    #[test]
+    fn only_known_delays() {
+        assert!(check_delay(0).is_ok());
+        assert!(check_delay(10).is_ok());
+        assert!(check_delay(7).is_err());
     }
 }

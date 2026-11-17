@@ -39,13 +39,13 @@ Milestones are ordered; each one ships something usable. Details and priorities 
 ## M3 — Workflow
 
 - [x] Gallery of saved snips (open, copy, show in folder, delete)
-- [ ] Gallery date grouping, search, tags
-- [ ] Capture presets (capture type → effects → output)
+- [x] Gallery date grouping, search, tags (tags and the source app/window title are searchable)
+- [x] Capture presets (capture type → delay/pointer → effects → output, own shortcut, tray menu)
 - [x] Settings: hotkeys, after-capture action, launch at startup
-- [ ] Settings: output folder, filename template, theme
-- [ ] Delayed capture, cursor capture, repeat last capture
-- [ ] Quick styles for tools
-- [ ] Effects: border, shadow, torn edge; magnify, spotlight, pen
+- [x] Settings: output folder, filename template, theme
+- [x] Delayed capture, cursor capture, repeat last capture
+- [x] Quick styles for tools
+- [x] Effects: border, shadow, torn edge; magnify, spotlight, pen
 
 ## M4 — Video
 

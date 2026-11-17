@@ -3,7 +3,7 @@
  * editable. It is a ZIP archive (rename it to `.zip` to look inside):
  *
  * ```
- * document.json   format + version, image size, crop, and the shapes
+ * document.json   format + version, image size, crop, effects, and the shapes
  * metadata.json   facts about the snip (when it was saved); grows with capture details later
  * original.png    the captured pixels, untouched
  * thumbnail.png   small flattened preview
@@ -16,6 +16,7 @@
  *
  * Nothing here touches the DOM, so it can be checked outside the app.
  */
+import type { Effects } from "./effects";
 import type { Area, ImageShape, Shape } from "./types";
 
 export const SNIP_FORMAT = "snipit";
@@ -32,6 +33,8 @@ interface DocumentJson {
   version: number;
   image: { file: string; width: number; height: number };
   crop: Area | null;
+  /** Border, shadow and torn edges; missing in snips saved before effects existed. */
+  effects?: Effects;
   shapes: StoredShape[];
 }
 
@@ -46,6 +49,7 @@ export interface SnipProject {
   width: number;
   height: number;
   crop: Area | null;
+  effects: Effects;
   shapes: StoredShape[];
   /** PNG bytes for each image shape's `asset`. */
   assets: Map<string, Uint8Array>;
@@ -64,6 +68,8 @@ const SHAPE_TYPES = new Set<string>([
   "step",
   "pixelate",
   "blur",
+  "magnify",
+  "spotlight",
   "image",
 ]);
 
@@ -73,6 +79,7 @@ export async function encodeSnip(doc: {
   width: number;
   height: number;
   crop: Area | null;
+  effects?: Effects;
   shapes: Shape[];
   thumbnail?: Uint8Array;
   now?: Date;
@@ -92,6 +99,7 @@ export async function encodeSnip(doc: {
     version: SNIP_VERSION,
     image: { file: "original.png", width: doc.width, height: doc.height },
     crop: doc.crop,
+    ...(doc.effects && { effects: doc.effects }),
     shapes,
   };
   const metadata: SnipMetadata = { savedAt: now.toISOString() };
@@ -142,6 +150,7 @@ export async function decodeSnip(bytes: Uint8Array): Promise<SnipProject> {
     width: doc.image!.width,
     height: doc.image!.height,
     crop: doc.crop ?? null,
+    effects: doc.effects ?? {},
     shapes,
     assets,
     metadata: metaText ? (JSON.parse(metaText) as SnipMetadata) : null,

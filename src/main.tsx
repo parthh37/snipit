@@ -9,7 +9,8 @@ const label = getCurrentWindow().label;
 const isOverlay = label.startsWith("overlay-");
 const isWidget = label === "widget";
 const isScrollStatus = label === "scroll-status";
-if (isWidget || isScrollStatus) {
+const isCountdown = label === "countdown";
+if (isWidget || isScrollStatus || isCountdown) {
   document.documentElement.classList.add("transparent");
 }
 
@@ -22,7 +23,9 @@ const Root = lazy(() =>
       ? import("./windows/widget/Widget")
       : isScrollStatus
         ? import("./windows/scroll/ScrollStatus")
-        : import("./windows/main/MainWindow"),
+        : isCountdown
+          ? import("./windows/countdown/Countdown")
+          : import("./windows/main/MainWindow"),
 );
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

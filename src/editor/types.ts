@@ -1,3 +1,5 @@
+import type { Effects } from "./effects";
+
 export type Tool =
   | "select"
   | "arrow"
@@ -11,6 +13,8 @@ export type Tool =
   | "step"
   | "pixelate"
   | "blur"
+  | "magnify"
+  | "spotlight"
   | "crop";
 
 /** Common to every annotation: a position (image pixels) plus the transformer's edits. */
@@ -89,6 +93,29 @@ export interface ObscureShape extends Base {
   amount: number;
 }
 
+/** A round lens showing what is under it, `zoom` times larger. */
+export interface MagnifyShape extends Base {
+  type: "magnify";
+  width: number;
+  height: number;
+  zoom: number;
+  /** Colour of the ring. */
+  stroke: string;
+  strokeWidth: number;
+}
+
+/**
+ * An area left bright while the rest of the image is dimmed. Several spotlights share one
+ * dimmed layer, drawn where the first of them sits in the stacking order.
+ */
+export interface SpotlightShape extends Base {
+  type: "spotlight";
+  width: number;
+  height: number;
+  /** How dark the rest gets, 0–1. */
+  dim: number;
+}
+
 export interface ImageShape extends Base {
   type: "image";
   image: HTMLImageElement;
@@ -105,6 +132,8 @@ export type Shape =
   | CalloutShape
   | StepShape
   | ObscureShape
+  | MagnifyShape
+  | SpotlightShape
   | ImageShape;
 
 export type ShapePatch = Partial<Omit<Shape, "id" | "type">> &
@@ -118,11 +147,12 @@ export interface Area {
   height: number;
 }
 
-/** What undo/redo steps through: the annotations plus the non-destructive crop. */
+/** What undo/redo steps through: the annotations, the non-destructive crop and the effects. */
 export interface DocState {
   shapes: Shape[];
   /** `null` shows the whole image. */
   crop: Area | null;
+  effects: Effects;
 }
 
 export const FONT_FAMILY =

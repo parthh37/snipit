@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    path::PathBuf,
     str::FromStr,
     sync::{
         Mutex,
@@ -16,13 +17,14 @@ use tauri_plugin_global_shortcut::{
 
 use crate::{
     capture::{self, CaptureMode},
+    gallery,
     settings::{self, Settings, ShortcutAction},
     tray,
 };
 
 /// The main window replaces its settings view with this event's payload (a `SettingsView`)
 /// when they change outside it, e.g. launch at login from the tray.
-const SETTINGS_VIEW_EVENT: &str = "settings-view";
+pub const SETTINGS_VIEW_EVENT: &str = "settings-view";
 
 /// Registration problems per action (e.g. the key is already taken by another app).
 #[derive(Default)]
@@ -48,10 +50,14 @@ pub fn set_paused(app: &AppHandle, paused: bool) {
 pub struct SettingsView {
     settings: Settings,
     shortcut_errors: BTreeMap<ShortcutAction, String>,
+    /// Preset shortcuts that could not be registered, by preset id.
+    preset_errors: BTreeMap<String, String>,
     autostart: bool,
     /// Windows' "Use the Print screen key to open screen capture" setting is on, which
     /// swallows PrintScreen before Snipit sees it.
     printscreen_reserved_by_windows: bool,
+    /// The folder snips are saved in.
+    gallery_dir: Option<PathBuf>,
 }
 
 pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
@@ -64,11 +70,21 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         return;
     }
     let settings = settings::get(app);
-    let action = settings.shortcuts.iter().find_map(|(action, accel)| {
-        let parsed = Shortcut::from_str(accel).ok()?;
-        (parsed.id() == shortcut.id()).then_some(*action)
-    });
+    let matches = |accel: &str| Shortcut::from_str(accel).is_ok_and(|s| s.id() == shortcut.id());
+    if let Some(preset) = settings
+        .presets
+        .iter()
+        .find(|p| p.shortcut.as_deref().is_some_and(matches))
+    {
+        capture::start_preset(app, &preset.id, false);
+        return;
+    }
+    let action = settings
+        .shortcuts
+        .iter()
+        .find_map(|(action, accel)| matches(accel).then_some(*action));
     match action {
+        Some(ShortcutAction::RepeatLastCapture) => capture::repeat(app, false),
         Some(ShortcutAction::CaptureRegion) => capture::start(app, CaptureMode::Interactive, false),
         Some(ShortcutAction::CaptureFullscreen) => {
             capture::start(app, CaptureMode::Fullscreen, false)
@@ -89,18 +105,59 @@ pub fn register_all(app: &AppHandle) {
         tray::refresh(app);
         return;
     }
-    let mut errors = BTreeMap::new();
-    for (action, accel) in settings::get(app).shortcuts {
-        if let Err(e) = Shortcut::from_str(&accel)
+    let register = |accel: &str| {
+        Shortcut::from_str(accel)
             .map_err(|e| e.to_string())
             .and_then(|s| gs.register(s).map_err(|e| e.to_string()))
-        {
+    };
+    let settings = settings::get(app);
+    let mut errors = BTreeMap::new();
+    for (action, accel) in settings.shortcuts {
+        if let Err(e) = register(&accel) {
             eprintln!("Could not register {accel} for {action:?}: {e}");
             errors.insert(action, describe_error(&accel, &e));
         }
     }
+    let mut preset_errors = BTreeMap::new();
+    for preset in settings.presets {
+        let Some(accel) = preset.shortcut else {
+            continue;
+        };
+        if let Err(e) = register(&accel) {
+            eprintln!("Could not register {accel} for preset {}: {e}", preset.name);
+            preset_errors.insert(preset.id, describe_error(&accel, &e));
+        }
+    }
     *app.state::<ShortcutErrors>().0.lock().unwrap() = errors;
+    *app.state::<PresetShortcutErrors>().0.lock().unwrap() = preset_errors;
     tray::refresh(app);
+}
+
+/// Registration problems per preset id.
+#[derive(Default)]
+pub struct PresetShortcutErrors(pub Mutex<BTreeMap<String, String>>);
+
+/// Who already uses `accelerator`, other than `except_action` or the preset `except_preset`.
+pub fn clash(
+    settings: &Settings,
+    accelerator: &str,
+    except_action: Option<ShortcutAction>,
+    except_preset: Option<&str>,
+) -> Result<Option<String>, String> {
+    let parsed = Shortcut::from_str(accelerator).map_err(|e| format!("Invalid shortcut: {e}"))?;
+    let same = |other: &str| Shortcut::from_str(other).is_ok_and(|s| s.id() == parsed.id());
+    if let Some((action, _)) = settings
+        .shortcuts
+        .iter()
+        .find(|(action, accel)| Some(**action) != except_action && same(accel))
+    {
+        return Ok(Some(format!("\"{}\"", label(*action))));
+    }
+    Ok(settings
+        .presets
+        .iter()
+        .find(|p| Some(p.id.as_str()) != except_preset && p.shortcut.as_deref().is_some_and(same))
+        .map(|p| format!("the {} preset", p.name)))
 }
 
 fn describe_error(accel: &str, error: &str) -> String {
@@ -116,14 +173,26 @@ fn describe_error(accel: &str, error: &str) -> String {
     }
 }
 
-fn view(app: &AppHandle) -> SettingsView {
+pub fn view(app: &AppHandle) -> SettingsView {
     use tauri_plugin_autostart::ManagerExt;
     SettingsView {
         settings: settings::get(app),
         shortcut_errors: app.state::<ShortcutErrors>().0.lock().unwrap().clone(),
+        preset_errors: app
+            .state::<PresetShortcutErrors>()
+            .0
+            .lock()
+            .unwrap()
+            .clone(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         printscreen_reserved_by_windows: printscreen_reserved_by_windows(),
+        gallery_dir: gallery::configured_dir(app).ok(),
     }
+}
+
+/// Tells the main window its settings view changed.
+pub fn broadcast_view(app: &AppHandle) {
+    let _ = app.emit_to("main", SETTINGS_VIEW_EVENT, &view(app));
 }
 
 fn escape() -> Shortcut {
@@ -136,6 +205,13 @@ fn escape() -> Shortcut {
 pub fn grab_escape(app: &AppHandle) {
     if let Err(err) = app.global_shortcut().register(escape()) {
         eprintln!("Couldn't register Esc for the capture overlay: {err}");
+    }
+}
+
+/// Releases Esc before returning. Call it from a worker thread: it waits for the main thread.
+pub fn release_escape_now(app: &AppHandle) {
+    if app.global_shortcut().is_registered(escape()) {
+        let _ = app.global_shortcut().unregister(escape());
     }
 }
 
@@ -193,16 +269,10 @@ pub fn set_shortcut(
     action: ShortcutAction,
     accelerator: Option<String>,
 ) -> Result<SettingsView, String> {
-    if let Some(accel) = &accelerator {
-        let parsed = Shortcut::from_str(accel).map_err(|e| format!("Invalid shortcut: {e}"))?;
-        let current = settings::get(&app);
-        let clash = current.shortcuts.iter().find(|(other, other_accel)| {
-            **other != action
-                && Shortcut::from_str(other_accel).is_ok_and(|s| s.id() == parsed.id())
-        });
-        if let Some((other, _)) = clash {
-            return Err(format!("Already used by \"{}\"", label(*other)));
-        }
+    if let Some(accel) = &accelerator
+        && let Some(other) = clash(&settings::get(&app), accel, Some(action), None)?
+    {
+        return Err(format!("Already used by {other}"));
     }
 
     settings::update(&app, |s| match accelerator {
@@ -245,7 +315,7 @@ pub fn change_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
     result.map_err(|e| e.to_string())?;
     settings::update(app, |s| s.autostart_initialized = true)?;
     tray::refresh(app);
-    let _ = app.emit_to("main", SETTINGS_VIEW_EVENT, &view(app));
+    broadcast_view(app);
     Ok(())
 }
 
@@ -266,6 +336,7 @@ fn label(action: ShortcutAction) -> &'static str {
         ShortcutAction::CaptureFullscreen => "Capture full screen",
         ShortcutAction::CaptureScrolling => "Scrolling capture",
         ShortcutAction::AnnotateClipboard => "Annotate clipboard image",
+        ShortcutAction::RepeatLastCapture => "Repeat last capture",
     }
 }
 

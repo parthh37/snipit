@@ -101,7 +101,7 @@ pub fn start(
     monitor: Rect,
     area: Rect,
     target: Option<isize>,
-    restore_main: bool,
+    delivery: super::Delivery,
 ) {
     let state = app.state::<ScrollState>();
     if state.running.swap(true, Ordering::SeqCst) {
@@ -123,7 +123,7 @@ pub fn start(
 
         match result {
             Ok((image, scrolled)) => {
-                if let Err(err) = super::deliver(&app, &image, restore_main) {
+                if let Err(err) = super::deliver(&app, &image, &delivery) {
                     super::report_error(&app, err);
                 } else if !scrolled {
                     super::report_error(
@@ -136,7 +136,7 @@ pub fn start(
             }
             Err(err) => {
                 super::report_error(&app, format!("Scrolling capture failed: {err}"));
-                if restore_main {
+                if delivery.restore_main {
                     tray::show_main_window(&app);
                 }
             }

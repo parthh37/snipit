@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Effects } from "../editor/effects";
 
 /** A point in physical pixels. */
 export interface Point {
@@ -35,13 +36,34 @@ export interface CaptureSaved {
 
 /** A new snip was saved to the gallery (from a capture or the clipboard). */
 export const CAPTURE_SAVED_EVENT = "capture-saved";
-/** Asks the main window to open a snip in the editor; payload `{ path }`. */
+/** Asks the main window to open a snip in the editor; payload {@link OpenEditor}. */
 export const EDITOR_OPEN_EVENT = "editor:open";
+
+export interface OpenEditor {
+  path: string;
+  /** A preset's effects, added in the editor as the first change. */
+  effects?: Effects;
+}
+
+/** Asks the main window to add a preset's effects to a new snip; payload {@link ProcessCapture}. */
+export const PROCESS_EVENT = "capture:process";
+
+export interface ProcessCapture {
+  path: string;
+  effects: Effects;
+  /** Copy the result to the clipboard as well. */
+  copy: boolean;
+}
 /** A capture or clipboard import failed; payload is the message. */
 export const ERROR_EVENT = "app:error";
 
 export const startCapture = (mode: CaptureMode) =>
   invoke<void>("start_capture", { mode });
+
+/** Captures the area of the last capture again. */
+export const repeatLastCapture = () => invoke<void>("repeat_last_capture");
+
+export const runPreset = (id: string) => invoke<void>("run_preset", { id });
 
 export const annotateClipboard = () => invoke<void>("annotate_clipboard_cmd");
 

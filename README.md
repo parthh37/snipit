@@ -43,12 +43,24 @@ launch at login on or off, open Settings, check for updates and quit.
 | Scrolling (whole webpage)     | `Ctrl` + `PrtSc`, then click the window or drag the part that scrolls; Snipit scrolls it from the top and stitches one long image. `Esc` (or moving the mouse) finishes early |
 | Cancel                        | `Esc` or right-click                                                                                                                                                          |
 | Annotate the clipboard image  | `Ctrl+V` in the main window, or the tray menu                                                                                                                                 |
-| From other tools              | `snipit --capture`, `--capture-fullscreen` or `--capture-scrolling`                                                                                                           |
+| Repeat last capture           | The same area again: tray menu, the Capture page, or a shortcut you set in Settings                                                                                           |
+| From other tools              | `snipit --capture`, `--capture-fullscreen`, `--capture-scrolling` or `--capture-repeat`                                                                                       |
 | Capture widget                | Point at the tab on the edge of the screen, pick a capture                                                                                                                    |
 
 All shortcuts can be changed in **Settings**. Every capture is saved as a PNG in
-`Pictures\Snipit` and listed in the **Gallery**; Settings picks whether a new capture then
-opens in the editor (the default) or goes straight to the clipboard.
+`Pictures\Snipit` (or a folder you pick in Settings, named by a template such as
+`{app}_{date}_{time}`) and listed in the **Gallery**. The gallery groups snips by day, and you
+can tag them and search by name, tag, program or window title. Settings also picks:
+
+- whether a new capture opens in the editor (the default), goes straight to the clipboard or
+  is only saved;
+- a capture delay of 3, 5 or 10 seconds, with a countdown;
+- whether the mouse pointer is included;
+- a light, dark or system theme.
+
+**Capture presets** on the Capture page save a recipe: region, full screen or scrolling, a
+delay, the pointer, effects (border, drop shadow, torn edges) and where the result goes. Run
+one from the Capture page, the tray menu or its own shortcut.
 
 The **capture widget** is a small tab docked to the top, left or right edge of the screen.
 Point at it and it opens into buttons for region, full-screen and clipboard captures. Drag its
@@ -63,8 +75,10 @@ screenshot tool (Snagit, ShareX, OneDrive…) has claimed it. Snipit shows a not
 window when this happens, and you can pick another key in Settings.
 
 The editor has arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step
-number and pixelate tools (single-letter shortcuts shown in tooltips), undo/redo, and pastes
-images from the clipboard. **Copy** puts the annotated image on the clipboard and saves it.
+number, pixelate, blur, magnify and spotlight tools (single-letter shortcuts shown in
+tooltips), crop, undo/redo, and pastes images from the clipboard. Its **Effects** tab frames
+the whole image with a border, a drop shadow or torn edges, and they stay editable in the
+`.snip`. **Copy** puts the annotated image on the clipboard and saves it.
 
 ## Tech stack
 

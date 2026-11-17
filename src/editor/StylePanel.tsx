@@ -160,6 +160,8 @@ interface Props {
   onSize: (size: Size) => void;
   onStyle: (patch: Partial<ShapeStyle>) => void;
   onPreset: (preset: Preset) => void;
+  /** Tabs at the top of the panel. */
+  header?: ReactNode;
 }
 
 /**
@@ -177,13 +179,15 @@ export default function StylePanel({
   onSize,
   onStyle,
   onPreset,
+  header,
 }: Props) {
   const kind = isStyleKind(target) ? target : null;
   const [custom, setCustom] = useState<Record<string, Preset[]>>({});
   const saved = kind ? (custom[kind] ?? loadCustom(kind)) : [];
   const styled = STYLED_TOOLS.has(target);
   const boxy = target === "rect" || target === "ellipse";
-  const obscure = target === "pixelate" || target === "blur";
+  const obscure =
+    target === "pixelate" || target === "blur" || target === "spotlight";
 
   const current: Preset = {
     color,
@@ -201,6 +205,7 @@ export default function StylePanel({
   if (empty) {
     return (
       <Panel>
+        {header}
         <p className="px-4 py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
           Pick a tool, or select a shape on the image to change its style.
         </p>
@@ -210,6 +215,7 @@ export default function StylePanel({
 
   return (
     <Panel>
+      {header}
       {kind && (
         <Section
           title="Quick styles"
@@ -286,7 +292,15 @@ export default function StylePanel({
 
         <Row
           label={
-            obscure ? "Strength" : target === "text" ? "Text size" : "Size"
+            target === "spotlight"
+              ? "Dim"
+              : target === "magnify"
+                ? "Zoom"
+                : obscure
+                  ? "Strength"
+                  : target === "text"
+                    ? "Text size"
+                    : "Size"
           }
         >
           <Segmented>
@@ -421,7 +435,7 @@ function describe(p: Preset) {
   return bits.join(", ");
 }
 
-function Panel({ children }: { children: ReactNode }) {
+export function Panel({ children }: { children: ReactNode }) {
   return (
     <aside
       className="flex w-60 shrink-0 flex-col overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
@@ -435,7 +449,7 @@ function Panel({ children }: { children: ReactNode }) {
   );
 }
 
-function Section({
+export function Section({
   title,
   action,
   children,
@@ -457,7 +471,13 @@ function Section({
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid grid-cols-[64px_1fr] items-center gap-2">
       <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
@@ -466,7 +486,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Segmented({ children }: { children: ReactNode }) {
+export function Segmented({ children }: { children: ReactNode }) {
   return (
     <div className="flex w-fit rounded-md border border-zinc-200 p-0.5 dark:border-zinc-700">
       {children}
@@ -474,7 +494,7 @@ function Segmented({ children }: { children: ReactNode }) {
   );
 }
 
-function Segment({
+export function Segment({
   active,
   title,
   onClick,

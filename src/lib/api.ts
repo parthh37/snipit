@@ -1,11 +1,31 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import type { Effects } from "../editor/effects";
+import type { CaptureMode, Rect } from "./capture";
 
 export type ShortcutAction =
   | "captureRegion"
   | "captureFullscreen"
   | "captureScrolling"
-  | "annotateClipboard";
-export type AfterCapture = "edit" | "copy";
+  | "annotateClipboard"
+  | "repeatLastCapture";
+export type AfterCapture = "edit" | "copy" | "save";
+export type Theme = "system" | "light" | "dark";
+
+/** Seconds a capture can wait before freezing the screen; mirrors `CAPTURE_DELAYS`. */
+export const CAPTURE_DELAYS = [0, 3, 5, 10] as const;
+
+/** A named capture recipe; mirrors `CapturePreset` in `settings.rs`. */
+export interface CapturePreset {
+  /** Empty for a preset that hasn't been saved yet. */
+  id: string;
+  name: string;
+  mode: CaptureMode;
+  delay: number;
+  cursor: boolean;
+  effects: Effects;
+  after: AfterCapture;
+  shortcut: string | null;
+}
 
 export interface Settings {
   shortcuts: Partial<Record<ShortcutAction, string>>;
@@ -21,6 +41,14 @@ export interface Settings {
   } | null;
   /** Look for new releases on launch and every few hours. */
   autoCheckUpdates: boolean;
+  /** `null` saves in Pictures\Snipit. */
+  outputFolder: string | null;
+  filenameTemplate: string;
+  theme: Theme;
+  captureDelay: number;
+  captureCursor: boolean;
+  lastCapture: { mode: CaptureMode; rect: Rect } | null;
+  presets: CapturePreset[];
 }
 
 /** Mirrors `UpdateStatus` in `src-tauri/src/updater.rs`. */
@@ -39,9 +67,13 @@ export const UPDATE_STATUS_EVENT = "update-status";
 export interface SettingsView {
   settings: Settings;
   shortcutErrors: Partial<Record<ShortcutAction, string>>;
+  /** Preset shortcuts that could not be registered, by preset id. */
+  presetErrors: Record<string, string>;
   autostart: boolean;
   /** Windows' "Use the Print screen key to open screen capture" is on. */
   printscreenReservedByWindows: boolean;
+  /** The folder snips are saved in. */
+  galleryDir: string | null;
 }
 
 /** The settings view changed outside the main window (e.g. from the tray); payload `SettingsView`. */
@@ -58,6 +90,11 @@ export interface Snip {
   size: number;
   /** A `.snip` project sits beside it, so its annotations can still be edited. */
   editable: boolean;
+  tags: string[];
+  /** The program it was captured from, e.g. "chrome". */
+  app: string | null;
+  /** The title of the window it was captured from. */
+  title: string | null;
 }
 
 export const api = {
@@ -87,6 +124,17 @@ export const api = {
   deleteSnip: (path: string) => invoke<void>("delete_snip", { path }),
   revealSnip: (path: string) => invoke<void>("reveal_snip", { path }),
   openGalleryFolder: () => invoke<void>("open_gallery_folder"),
+  /** Replaces a snip's tags; resolves with them tidied up. */
+  setSnipTags: (path: string, tags: string[]) =>
+    invoke<string[]>("set_snip_tags", { path, tags }),
+  /** Asks for a new snips folder; `null` when cancelled. */
+  chooseOutputFolder: () => invoke<SettingsView | null>("choose_output_folder"),
+  resetOutputFolder: () => invoke<SettingsView>("reset_output_folder"),
+  setFilenameTemplate: (template: string) =>
+    invoke<Settings>("set_filename_template", { template }),
+  /** The file name `template` gives, or an error explaining what is wrong with it. */
+  previewFilename: (template: string) =>
+    invoke<string>("preview_filename", { template }),
 
   getSettings: () => invoke<SettingsView>("get_settings"),
   setShortcut: (action: ShortcutAction, accelerator: string | null) =>
@@ -98,6 +146,12 @@ export const api = {
   setAutostart: (enabled: boolean) =>
     invoke<SettingsView>("set_autostart", { enabled }),
   openKeyboardSettings: () => invoke<void>("open_keyboard_settings"),
+  setTheme: (theme: Theme) => invoke<Settings>("set_theme", { theme }),
+  setCaptureOptions: (delay: number, cursor: boolean) =>
+    invoke<Settings>("set_capture_options", { delay, cursor }),
+  savePreset: (preset: CapturePreset) =>
+    invoke<SettingsView>("save_preset", { preset }),
+  deletePreset: (id: string) => invoke<SettingsView>("delete_preset", { id }),
   setWidgetVisible: (visible: boolean) =>
     invoke<Settings>("set_widget_visible", { visible }),
   openMainWindow: () => invoke<void>("open_main_window"),

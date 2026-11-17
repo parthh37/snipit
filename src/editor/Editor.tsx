@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,7 +16,8 @@ import {
   Transformer,
 } from "react-konva";
 import { api, errorMessage } from "../lib/api";
-import ShapeNode from "./ShapeNode";
+import EffectsPanel, { PanelTabs } from "./EffectsPanel";
+import ShapeNode, { SpotlightDim } from "./ShapeNode";
 import StylePanel, {
   type Preset,
   type ShapeStyle,
@@ -46,11 +48,21 @@ import {
   type LineStyle,
   type Shape,
   type ShapePatch,
+  type SpotlightShape,
   type TextShape,
   type Tool,
 } from "./types";
 import { useHistory } from "./useHistory";
 import { encodeSnip, type SnipProject } from "./snipFile";
+import {
+  applyEffects,
+  drawPaper,
+  frameOf,
+  hasEffects,
+  tracePolygon,
+  type Effects,
+} from "./effects";
+import { bufferOf, canvasPng, loadImage, thumbnailOf } from "./render";
 
 export interface EditorDoc {
   /** Gallery file being edited; `null` until the first save. */
@@ -59,6 +71,8 @@ export interface EditorDoc {
   png: ArrayBuffer;
   /** The `.snip` saved with an earlier edit: its original image and annotations reopen. */
   project?: SnipProject | null;
+  /** Effects from a capture preset, added as the first (undoable) change. */
+  effects?: Effects;
 }
 
 interface Props {
@@ -82,6 +96,8 @@ const TOOLS: { tool: Tool; label: string; short: string; key: string }[] = [
   { tool: "step", label: "Step number", short: "Step", key: "N" },
   { tool: "pixelate", label: "Pixelate", short: "Pixelate", key: "X" },
   { tool: "blur", label: "Blur", short: "Blur", key: "U" },
+  { tool: "magnify", label: "Magnify", short: "Magnify", key: "M" },
+  { tool: "spotlight", label: "Spotlight", short: "Spotlight", key: "S" },
   { tool: "crop", label: "Crop", short: "Crop", key: "C" },
 ];
 
@@ -114,6 +130,10 @@ const STEP_RADIUS = { s: 12, m: 16, l: 22 };
 const HIGHLIGHT = { s: 14, m: 22, l: 34 };
 const PIXEL = { s: 6, m: 10, l: 16 };
 const BLUR = { s: 10, m: 20, l: 32 };
+const ZOOM = { s: 1.5, m: 2, l: 3 };
+const DIM = { s: 0.35, m: 0.55, l: 0.75 };
+
+const EMPTY_DOC: DocState = { shapes: [], crop: null, effects: {} };
 
 /** Zoom presets for the +/− buttons, in device pixels per image pixel (1 = 100%). */
 const ZOOM_STEPS = [
@@ -170,43 +190,6 @@ function trackPointer(
   window.addEventListener("pointerup", up);
 }
 
-/** Longest side of the preview stored in a `.snip`. */
-const THUMBNAIL_SIZE = 400;
-
-function canvasPng(canvas: HTMLCanvasElement) {
-  return new Promise<Uint8Array>((resolve, reject) =>
-    canvas.toBlob(
-      (b) =>
-        b
-          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)), reject)
-          : reject(new Error("Export failed")),
-      "image/png",
-    ),
-  );
-}
-
-function thumbnailOf(canvas: HTMLCanvasElement) {
-  const scale = Math.min(
-    1,
-    THUMBNAIL_SIZE / Math.max(canvas.width, canvas.height, 1),
-  );
-  const thumb = document.createElement("canvas");
-  thumb.width = Math.max(1, Math.round(canvas.width * scale));
-  thumb.height = Math.max(1, Math.round(canvas.height * scale));
-  const ctx = thumb.getContext("2d");
-  if (ctx) {
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-  }
-  return thumb;
-}
-
-/** An `ArrayBuffer` holding exactly `bytes`. */
-const bufferOf = (bytes: Uint8Array): ArrayBuffer =>
-  bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
-    ? (bytes.buffer as ArrayBuffer)
-    : (bytes.slice().buffer as ArrayBuffer);
-
 /** Turns a `.snip`'s stored annotations back into editor shapes. */
 async function projectState(project: SnipProject): Promise<DocState> {
   const shapes = await Promise.all(
@@ -217,25 +200,7 @@ async function projectState(project: SnipProject): Promise<DocState> {
       return { ...rest, png, image: await loadImage(png) };
     }),
   );
-  return { shapes, crop: project.crop };
-}
-
-function loadImage(png: ArrayBuffer) {
-  const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    // A loaded image keeps its pixels, so the blob can go; otherwise every opened snip and
-    // paste would stay in memory for as long as Snipit sits in the tray.
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not load the image"));
-    };
-    image.src = url;
-  });
+  return { shapes, crop: project.crop, effects: project.effects };
 }
 
 /** Snaps a vector to the nearest 45°. */
@@ -250,8 +215,8 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   /** The background's PNG bytes, stored in the `.snip` as the untouched original. */
   const originalRef = useRef<Uint8Array>(new Uint8Array());
   const [path, setPath] = useState<string | null>(doc.path);
-  const history = useHistory<DocState>({ shapes: [], crop: null });
-  const { shapes, crop } = history.present;
+  const history = useHistory<DocState>(EMPTY_DOC);
+  const { shapes, crop, effects } = history.present;
   const [savedDoc, setSavedDoc] = useState<DocState>(history.present);
   const dirty = history.present !== savedDoc;
 
@@ -266,6 +231,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const [opacity, setOpacity] = useState(1);
   const [shadow, setShadow] = useState(true);
   const [panelOpen, setPanelOpen] = useState(panelInitiallyOpen);
+  const [panelTab, setPanelTab] = useState<"styles" | "effects">("styles");
   /** The Copy button shows a check for a moment after copying. */
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number>(undefined);
@@ -298,6 +264,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const uiLayerRef = useRef<Konva.Layer>(null);
+  const frameLayerRef = useRef<Konva.Layer>(null);
   const trRef = useRef<Konva.Transformer>(null);
   const cropTrRef = useRef<Konva.Transformer>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -324,6 +291,11 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const full: Area = { x: 0, y: 0, width: iw, height: ih };
   /** The part of the image on show: all of it while cropping, so the crop can grow back. */
   const area = cropping ? full : (crop ?? full);
+  /** Border, shadow and torn edges around it; hidden while cropping. */
+  const frame =
+    iw && !cropping && hasEffects(effects) ? frameOf(area, effects) : null;
+  /** What is fitted to the window: the image, plus its border and shadow. */
+  const fitted = frame?.bounds ?? area;
 
   // Fit to the window, but never larger than the pixels were on screen.
   const fitScale =
@@ -332,8 +304,8 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           0.01,
           Math.min(
             1 / dpr,
-            (viewport.width - MARGIN * 2) / area.width,
-            (viewport.height - MARGIN * 2) / area.height,
+            (viewport.width - MARGIN * 2) / fitted.width,
+            (viewport.height - MARGIN * 2) / fitted.height,
           ),
         )
       : 1;
@@ -353,8 +325,8 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     };
     return {
       scale: v.scale,
-      x: axis(v.x, area.x, area.width, viewport.width),
-      y: axis(v.y, area.y, area.height, viewport.height),
+      x: axis(v.x, fitted.x, fitted.width, viewport.width),
+      y: axis(v.y, fitted.y, fitted.height, viewport.height),
     };
   };
 
@@ -442,21 +414,24 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   // ---- export, save, copy -------------------------------------------------
 
-  /** The image with its annotations, at full resolution, cut to `region`. */
+  /** The image with its annotations and effects, at full resolution, cut to its crop. */
   const renderCanvas = useCallback(
-    (region: Area | null) => {
+    (state: DocState) => {
       const stage = stageRef.current;
       if (!stage) throw new Error("Editor not ready");
       // Render at the image's own size and scale 1 rather than scaling the on-screen stage
       // back up: its size is rounded to whole screen pixels, which made exports a pixel or
       // two off.
-      const r = region ?? { x: 0, y: 0, width: iw, height: ih };
+      const r = state.crop ?? { x: 0, y: 0, width: iw, height: ih };
       const onScreen = {
         size: stage.size(),
         scale: stage.scale(),
         position: stage.position(),
       };
       uiLayerRef.current?.visible(false);
+      // The effects are added below from `state`, which may be newer than what is on screen
+      // (a crop applied a moment ago).
+      frameLayerRef.current?.visible(false);
       stage.size({ width: iw, height: ih });
       stage.scale({ x: 1, y: 1 });
       stage.position({ x: 0, y: 0 });
@@ -468,26 +443,30 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         stage.scale(onScreen.scale);
         stage.position(onScreen.position);
         uiLayerRef.current?.visible(true);
+        frameLayerRef.current?.visible(true);
       }
-      return canvas;
+      return hasEffects(state.effects)
+        ? applyEffects(canvas, canvas.width, canvas.height, state.effects)
+        : canvas;
     },
     [iw, ih],
   );
 
   const exportPng = useCallback(
-    (region: Area | null) => canvasPng(renderCanvas(region)),
+    (state: DocState) => canvasPng(renderCanvas(state)),
     [renderCanvas],
   );
 
   /** Saves the flattened PNG to the gallery and the editable `.snip` project beside it. */
   const save = useCallback(
     async (state: DocState) => {
-      const canvas = renderCanvas(state.crop);
+      const canvas = renderCanvas(state);
       const project = await encodeSnip({
         original: originalRef.current,
         width: iw,
         height: ih,
         crop: state.crop,
+        effects: state.effects,
         shapes: state.shapes,
         thumbnail: await canvasPng(thumbnailOf(canvas)),
       });
@@ -572,7 +551,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const copy = () =>
     run(async () => {
       const state = settleCrop();
-      await api.copyPng(await exportPng(state.crop));
+      await api.copyPng(await exportPng(state));
       if (state !== savedDoc) await save(state);
       window.clearTimeout(copiedTimer.current);
       setCopied(true);
@@ -617,13 +596,17 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       const image = await loadImage(bufferOf(original));
       const state: DocState = doc.project
         ? await projectState(doc.project)
-        : { shapes: [], crop: null };
+        : EMPTY_DOC;
       if (cancelled) return;
       originalRef.current = original;
       setBackground(image);
       setPath(doc.path);
       history.reset(state);
       setSavedDoc(state);
+      // A preset's effects count as an edit, so closing the editor saves them.
+      if (doc.effects && hasEffects(doc.effects)) {
+        history.commit({ ...state, effects: doc.effects });
+      }
       setSelectedId(null);
       editingRef.current = null;
       setEditing(null);
@@ -638,6 +621,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   }, [doc]);
 
   // ---- shape edits ----------------------------------------------------------
+
+  const setEffects = (next: Effects) =>
+    history.commit({ ...history.present, effects: next });
 
   const commitShapes = (next: Shape[]) =>
     history.commit({ ...history.present, shapes: next });
@@ -717,6 +703,10 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         return { amount: px(PIXEL[s]) };
       case "blur":
         return { amount: px(BLUR[s]) };
+      case "magnify":
+        return { zoom: ZOOM[s] };
+      case "spotlight":
+        return { dim: DIM[s] };
       default:
         return null;
     }
@@ -927,6 +917,26 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           amount: px(tool === "blur" ? BLUR[size] : PIXEL[size]),
         });
         break;
+      case "magnify":
+        setDraft({
+          ...base,
+          type: "magnify",
+          width: 0,
+          height: 0,
+          zoom: ZOOM[size],
+          stroke: color,
+          strokeWidth: px(STROKE.s),
+        });
+        break;
+      case "spotlight":
+        setDraft({
+          ...base,
+          type: "spotlight",
+          width: 0,
+          height: 0,
+          dim: DIM[size],
+        });
+        break;
       case "arrow":
       case "line":
         setDraft({
@@ -1025,10 +1035,14 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         case "rect":
         case "ellipse":
         case "pixelate":
-        case "blur": {
+        case "blur":
+        case "magnify":
+        case "spotlight": {
           if (
             evt.shiftKey &&
-            (current.type === "rect" || current.type === "ellipse")
+            (current.type === "rect" ||
+              current.type === "ellipse" ||
+              current.type === "magnify")
           ) {
             const side = Math.max(Math.abs(dx), Math.abs(dy));
             dx = Math.sign(dx || 1) * side;
@@ -1088,6 +1102,8 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         case "ellipse":
         case "pixelate":
         case "blur":
+        case "magnify":
+        case "spotlight":
           if (current.width < 3 || current.height < 3) shape = null;
           break;
         case "arrow":
@@ -1151,7 +1167,11 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     const type = selected?.type;
     tr.nodes(node ? [node] : []);
     tr.rotateEnabled(
-      type !== "pixelate" && type !== "blur" && type !== "callout",
+      type !== "pixelate" &&
+        type !== "blur" &&
+        type !== "callout" &&
+        type !== "magnify" &&
+        type !== "spotlight",
     );
     tr.keepRatio(type === "text" || type === "step" || type === "image");
     tr.enabledAnchors(
@@ -1249,6 +1269,10 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     selectedColor ?? (panelTarget === "highlighter" ? highlight : color);
   const palette = panelTarget === "highlighter" ? HIGHLIGHTER_COLORS : COLORS;
   const visibleShapes = draft ? [...shapes, draft] : shapes;
+  const spotlights = visibleShapes.filter(
+    (s): s is SpotlightShape => s.type === "spotlight",
+  );
+  const firstSpotlight = visibleShapes.findIndex((s) => s.type === "spotlight");
   const shown = cropping && cropDraft ? cropDraft : area;
   const cursor = panning
     ? "grabbing"
@@ -1271,7 +1295,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     (draft.type === "rect" ||
       draft.type === "ellipse" ||
       draft.type === "pixelate" ||
-      draft.type === "blur") &&
+      draft.type === "blur" ||
+      draft.type === "magnify" ||
+      draft.type === "spotlight") &&
     draft.width > 0
       ? draft
       : null;
@@ -1352,15 +1378,17 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         >
           {background && (
             <>
-              <div
-                className="pointer-events-none absolute shadow-xl"
-                style={{
-                  left: view.x + area.x * view.scale,
-                  top: view.y + area.y * view.scale,
-                  width: area.width * view.scale,
-                  height: area.height * view.scale,
-                }}
-              />
+              {!frame && (
+                <div
+                  className="pointer-events-none absolute shadow-xl"
+                  style={{
+                    left: view.x + area.x * view.scale,
+                    top: view.y + area.y * view.scale,
+                    width: area.width * view.scale,
+                    height: area.height * view.scale,
+                  }}
+                />
+              )}
               <Stage
                 ref={stageRef}
                 width={viewport.width}
@@ -1372,34 +1400,65 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
                 onMouseDown={onStageMouseDown}
                 style={{ position: "absolute", inset: 0, cursor }}
               >
+                {/* Border and shadow, under the image; exports add them from the doc. */}
+                <Layer ref={frameLayerRef} listening={false}>
+                  {frame && (
+                    <KShape
+                      sceneFunc={(ctx) =>
+                        drawPaper(
+                          (
+                            ctx as unknown as {
+                              _context: CanvasRenderingContext2D;
+                            }
+                          )._context,
+                          frame,
+                        )
+                      }
+                    />
+                  )}
+                </Layer>
                 <Layer
                   clipX={area.x}
                   clipY={area.y}
                   clipWidth={area.width}
                   clipHeight={area.height}
+                  clipFunc={
+                    frame?.torn
+                      ? (ctx) => tracePolygon(ctx, frame.clip)
+                      : undefined
+                  }
                 >
                   <KImage
                     image={background}
                     name="background"
                     listening={false}
                   />
-                  {visibleShapes.map((shape) => (
-                    <ShapeNode
-                      key={shape.id}
-                      shape={shape}
-                      background={background}
-                      selectable={
-                        tool === "select" && !spaceHeld && shape !== draft
-                      }
-                      editing={shape.id === editing?.id}
-                      onSelect={setSelectedId}
-                      onChange={update}
-                      onEdit={(id) => {
-                        const s = shapes.find((x) => x.id === id);
-                        if (s && (s.type === "text" || s.type === "callout"))
-                          startEditing(s, history.present);
-                      }}
-                    />
+                  {visibleShapes.map((shape, i) => (
+                    <Fragment key={shape.id}>
+                      {i === firstSpotlight && (
+                        <SpotlightDim
+                          spotlights={spotlights}
+                          width={iw}
+                          height={ih}
+                        />
+                      )}
+                      <ShapeNode
+                        key={shape.id}
+                        shape={shape}
+                        background={background}
+                        selectable={
+                          tool === "select" && !spaceHeld && shape !== draft
+                        }
+                        editing={shape.id === editing?.id}
+                        onSelect={setSelectedId}
+                        onChange={update}
+                        onEdit={(id) => {
+                          const s = shapes.find((x) => x.id === id);
+                          if (s && (s.type === "text" || s.type === "callout"))
+                            startEditing(s, history.present);
+                        }}
+                      />
+                    </Fragment>
                   ))}
                 </Layer>
 
@@ -1509,8 +1568,28 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           )}
         </div>
 
-        {panelOpen && !cropping && (
+        {panelOpen && !cropping && panelTab === "effects" && (
+          <EffectsPanel
+            effects={effects}
+            onChange={setEffects}
+            header={
+              <PanelTabs
+                tab={panelTab}
+                onTab={setPanelTab}
+                effectsOn={hasEffects(effects)}
+              />
+            }
+          />
+        )}
+        {panelOpen && !cropping && panelTab === "styles" && (
           <StylePanel
+            header={
+              <PanelTabs
+                tab={panelTab}
+                onTab={setPanelTab}
+                effectsOn={hasEffects(effects)}
+              />
+            }
             target={panelTarget}
             empty={
               panelTarget === "select" ||
