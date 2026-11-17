@@ -1,8 +1,10 @@
 name: Release
 
 # Two ways to cut a release:
-#   - locally: `npm run release -- 0.2.0` then `git push --follow-tags`
-#   - on GitHub: Actions → Release → Run workflow, enter 0.2.0 (bumps, commits and tags main)
+#   - locally: `npm run release` (or `-- minor`, `-- major`, `-- 0.2.0`) then
+#     `git push --follow-tags`
+#   - on GitHub: Actions → Release → Run workflow. Leave the version as "patch" for the next
+#     patch release, or enter minor, major or an exact version (bumps, commits and tags main)
 # Either way the installers are built, signed for the updater and published as a GitHub
 # release. Installed copies pick it up through latest.json (see plugins.updater in
 # src-tauri/tauri.conf.json). Tags with a suffix (v0.2.0-beta.1) become pre-releases, which
@@ -14,8 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, e.g. 0.2.0"
+        description: "patch, minor, major, or an exact version like 0.2.0"
         required: true
+        default: patch
 
 permissions:
   contents: write
@@ -50,6 +53,7 @@ jobs:
           node-version: 24
 
       - name: Bump version, commit and tag
+        id: bump
         if: github.event_name == 'workflow_dispatch'
         env:
           VERSION: ${{ inputs.version }}
@@ -60,16 +64,18 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node scripts/release.mjs "$VERSION"
-          git push --atomic origin HEAD:main "v${VERSION#v}"
+          # Prints version=X.Y.Z to $GITHUB_OUTPUT (resolves patch/minor/major).
+          node scripts/release.mjs "${VERSION:-patch}"
+          version=$(node -p "require('./package.json').version")
+          git push --atomic origin HEAD:main "v$version"
 
       - name: Resolve tag
         id: tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            tag="v${VERSION#v}"
+            tag="v$VERSION"
           else
             tag="$GITHUB_REF_NAME"
           fi

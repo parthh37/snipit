@@ -7,19 +7,23 @@ Installed copies of Snipit find new releases through the in-app updater.
 
 Either:
 
-- **From GitHub** — Actions → **Release** → **Run workflow** on `main`, enter the version
-  (e.g. `0.2.0`). The workflow bumps the version, commits `Release v0.2.0` to `main`, tags
-  it and publishes the release.
+- **From GitHub** — Actions → **Release** → **Run workflow** on `main`. The version box
+  defaults to `patch`, which releases the next patch version (1.1.0 → 1.1.1). Enter `minor`
+  (→ 1.2.0), `major` (→ 2.0.0) or an exact version (`0.2.0`, `1.2.0-beta.1`) instead. The
+  workflow bumps the version, commits `Release v1.1.1` to `main`, tags it and publishes the
+  release.
 - **From your machine** — on an up-to-date `main`:
 
   ```bash
-  npm run release -- 0.2.0
+  npm run release
   git push --follow-tags
   ```
 
-  `npm run release` updates the version in `package.json`, `package-lock.json`,
-  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock`, commits
-  and creates an annotated `v0.2.0` tag. Pushing the tag starts the workflow.
+  `npm run release` bumps to the next patch version; pass `-- minor`, `-- major` or
+  `-- 0.2.0` for something else. It updates the version in `package.json`,
+  `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and
+  `src-tauri/Cargo.lock`, commits and creates an annotated tag. Pushing the tag starts the
+  workflow.
 
 The workflow then:
 
