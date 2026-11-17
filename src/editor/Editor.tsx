@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- shares the editor helpers and constants that go with these components */
 import {
   useCallback,
   useEffect,
@@ -7,47 +8,63 @@ import {
 } from "react";
 import Konva from "konva";
 import {
+  Circle,
+  Ellipse,
   Image as KImage,
   Layer,
+  Line,
   Rect,
   Shape as KShape,
   Stage,
   Transformer,
 } from "react-konva";
-import { api, errorMessage } from "../lib/api";
-import ShapeNode from "./ShapeNode";
-import StylePanel, {
-  type Preset,
-  type ShapeStyle,
-  type Size,
-} from "./StylePanel";
+import { api, errorMessage, snipUrl, type Snip } from "../lib/api";
+import { startCapture } from "../lib/capture";
+import ShapeNode, { measureText } from "./ShapeNode";
+import SidePanel from "./SidePanel";
+import Toolbar, { TOOL_KEYS, loadBar, saveBar } from "./Toolbar";
+import { GearIcon, RecentIcon, ZoomIcon } from "./icons";
+import { Dropdown } from "./controls";
 import {
-  CheckIcon,
-  CloseIcon,
-  CopyIcon,
-  FitIcon,
-  PanelIcon,
-  PasteIcon,
-  RedoIcon,
-  SaveIcon,
-  UndoIcon,
-  ToolIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-} from "./icons";
+  canvasOf,
+  canvasPngBuffer,
+  colorMask,
+  cutOut,
+  dominantColor,
+  eraseStroke,
+  liftMask,
+  loadImage,
+  paintMask,
+  shapeMask,
+  toBase,
+} from "./pixelOps";
+import { stepPointer } from "./geometry";
 import {
-  CALLOUT_PADDING,
-  FONT_FAMILY,
-  TEXT_LINE_HEIGHT,
-  contrastText,
+  QUICK_STYLE_TOOLS,
+  loadFavorites,
+  loadStyles,
+  loadTheme,
+  sameStyle,
+  saveFavorites,
+  saveStyles,
+  saveTheme,
+  type Favorite,
+  type QuickStyle,
+  type StyledTool,
+  type Styles,
+} from "./toolStyles";
+import {
   type Area,
+  type BaseImage,
   type CalloutShape,
   type DocState,
-  type LineStyle,
+  type LineShape,
   type Shape,
   type ShapePatch,
+  type StepSequence,
   type TextShape,
   type Tool,
+  TEXT_LINE_HEIGHT,
 } from "./types";
 import { useHistory } from "./useHistory";
 import { encodeSnip, type SnipProject } from "./snipFile";
@@ -66,26 +83,34 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
   notify: (message: string) => void;
+  /** Opens another library snip (from the Recent tray). */
+  onOpenSnip?: (path: string) => void;
 }
 
-/** `short` is the label under the toolbar icon; `label` goes in the tooltip. */
-const TOOLS: { tool: Tool; label: string; short: string; key: string }[] = [
-  { tool: "select", label: "Select", short: "Select", key: "V" },
-  { tool: "arrow", label: "Arrow", short: "Arrow", key: "A" },
-  { tool: "rect", label: "Rectangle", short: "Rect", key: "R" },
-  { tool: "ellipse", label: "Ellipse", short: "Ellipse", key: "E" },
-  { tool: "line", label: "Line", short: "Line", key: "L" },
-  { tool: "pen", label: "Pen", short: "Pen", key: "P" },
-  { tool: "highlighter", label: "Highlighter", short: "Highlight", key: "H" },
-  { tool: "text", label: "Text", short: "Text", key: "T" },
-  { tool: "callout", label: "Text bubble", short: "Bubble", key: "B" },
-  { tool: "step", label: "Step number", short: "Step", key: "N" },
-  { tool: "pixelate", label: "Pixelate", short: "Pixelate", key: "X" },
-  { tool: "blur", label: "Blur", short: "Blur", key: "U" },
-  { tool: "crop", label: "Crop", short: "Crop", key: "C" },
-];
+/** Tools that work on the image's pixels, so objects don't catch their clicks. */
+const PIXEL_TOOLS = new Set<Tool>([
+  "fill",
+  "eraser",
+  "magicwand",
+  "selection",
+  "cutout",
+  "crop",
+]);
 
-/** Whether the Styles & Properties panel is open, remembered between sessions. */
+/** Which tool's properties edit a shape. */
+export function toolOf(shape: Shape): Tool {
+  switch (shape.type) {
+    case "highlight":
+      return "highlighter";
+    case "block":
+      return "simplify";
+    case "image":
+      return "move";
+    default:
+      return shape.type;
+  }
+}
+
 const PANEL_KEY = "snipit.editor.panel";
 function panelInitiallyOpen() {
   try {
@@ -95,33 +120,14 @@ function panelInitiallyOpen() {
   }
 }
 
-const COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#facc15",
-  "#22c55e",
-  "#3b82f6",
-  "#a855f7",
-  "#111827",
-  "#ffffff",
-];
-
-const HIGHLIGHTER_COLORS = ["#facc15", "#4ade80", "#f472b6", "#60a5fa"];
-
-const STROKE = { s: 3, m: 5, l: 9 };
-const FONT = { s: 16, m: 22, l: 32 };
-const STEP_RADIUS = { s: 12, m: 16, l: 22 };
-const HIGHLIGHT = { s: 14, m: 22, l: 34 };
-const PIXEL = { s: 6, m: 10, l: 16 };
-const BLUR = { s: 10, m: 20, l: 32 };
-
-/** Zoom presets for the +/− buttons, in device pixels per image pixel (1 = 100%). */
+/** Zoom presets, in device pixels per image pixel (1 = 100%). */
 const ZOOM_STEPS = [
   0.1,
   0.25,
   1 / 3,
   0.5,
   2 / 3,
+  0.75,
   1,
   1.5,
   2,
@@ -132,21 +138,29 @@ const ZOOM_STEPS = [
   12,
   16,
 ];
-/** Room kept around the image when it is fitted, or panned to an edge. */
-const MARGIN = 24;
+const MARGIN = 28;
 
-/** Stage transform: CSS pixels per image pixel, and where the image origin sits. */
 interface View {
   scale: number;
   x: number;
   y: number;
 }
 
-const newId = () => crypto.randomUUID();
+/** A UI-only preview drawn while a pixel tool or the marquee is dragged. */
+type Overlay =
+  | { kind: "marquee"; area: Area }
+  | {
+      kind: "select";
+      shape: "rect" | "ellipse" | "freehand";
+      area: Area;
+      points: number[];
+    }
+  | { kind: "band"; vertical: boolean; from: number; to: number }
+  | { kind: "erase"; points: number[]; width: number };
 
+const newId = () => crypto.randomUUID();
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
-
 const sameArea = (a: Area | null, b: Area | null) =>
   a === b ||
   (!!a &&
@@ -155,8 +169,16 @@ const sameArea = (a: Area | null, b: Area | null) =>
     a.y === b.y &&
     a.width === b.width &&
     a.height === b.height);
+const norm = (
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): Area => ({
+  x: Math.min(a.x, b.x),
+  y: Math.min(a.y, b.y),
+  width: Math.abs(b.x - a.x),
+  height: Math.abs(b.y - a.y),
+});
 
-/** Follows the pointer outside the canvas until the button is released. */
 function trackPointer(
   onMove: (e: PointerEvent) => void,
   onUp?: (e: PointerEvent) => void,
@@ -170,19 +192,10 @@ function trackPointer(
   window.addEventListener("pointerup", up);
 }
 
-/** Longest side of the preview stored in a `.snip`. */
 const THUMBNAIL_SIZE = 400;
 
 function canvasPng(canvas: HTMLCanvasElement) {
-  return new Promise<Uint8Array>((resolve, reject) =>
-    canvas.toBlob(
-      (b) =>
-        b
-          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)), reject)
-          : reject(new Error("Export failed")),
-      "image/png",
-    ),
-  );
+  return canvasPngBuffer(canvas).then((b) => new Uint8Array(b));
 }
 
 function thumbnailOf(canvas: HTMLCanvasElement) {
@@ -201,13 +214,11 @@ function thumbnailOf(canvas: HTMLCanvasElement) {
   return thumb;
 }
 
-/** An `ArrayBuffer` holding exactly `bytes`. */
 const bufferOf = (bytes: Uint8Array): ArrayBuffer =>
   bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
     ? (bytes.buffer as ArrayBuffer)
     : (bytes.slice().buffer as ArrayBuffer);
 
-/** Turns a `.snip`'s stored annotations back into editor shapes. */
 async function projectState(project: SnipProject): Promise<DocState> {
   const shapes = await Promise.all(
     project.shapes.map(async (stored): Promise<Shape> => {
@@ -217,86 +228,117 @@ async function projectState(project: SnipProject): Promise<DocState> {
       return { ...rest, png, image: await loadImage(png) };
     }),
   );
-  return { shapes, crop: project.crop };
+  let base: BaseImage | null = null;
+  if (project.base) {
+    const png = bufferOf(project.base.png);
+    base = {
+      png,
+      image: await loadImage(png),
+      width: project.base.width,
+      height: project.base.height,
+    };
+  }
+  return { shapes, crop: project.crop, base };
 }
 
-function loadImage(png: ArrayBuffer) {
-  const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    // A loaded image keeps its pixels, so the blob can go; otherwise every opened snip and
-    // paste would stay in memory for as long as Snipit sits in the tray.
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not load the image"));
-    };
-    image.src = url;
-  });
-}
-
-/** Snaps a vector to the nearest 45°. */
 function snap45(dx: number, dy: number) {
   const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
   const len = Math.hypot(dx, dy);
   return [Math.cos(angle) * len, Math.sin(angle) * len];
 }
 
-export default function Editor({ doc, onClose, onSaved, notify }: Props) {
-  const [background, setBackground] = useState<HTMLImageElement>();
-  /** The background's PNG bytes, stored in the `.snip` as the untouched original. */
+/** A shape's text box grown to fit its text. */
+function fitText<T extends TextShape | CalloutShape>(shape: T): T {
+  const need = measureText(shape, shape.width);
+  if (shape.type === "text") return { ...shape, height: need };
+  return need > shape.height ? { ...shape, height: need } : shape;
+}
+
+/** Turns a style-panel change into a patch for an existing shape of that tool. */
+function shapePatch(
+  shape: Shape,
+  patch: QuickStyle,
+  bg: CanvasImageSource | null,
+): ShapePatch {
+  const p = { ...patch } as Record<string, unknown>;
+  if (shape.type === "arrow" || shape.type === "line") {
+    if ("bezier" in p) {
+      const [x0, y0, x1, y1] = shape.points;
+      p.control = p.bezier
+        ? (shape.control ?? { x: (x0 + x1) / 2, y: (y0 + y1) / 2 })
+        : null;
+      delete p.bezier;
+    }
+  }
+  if (shape.type === "block" && "color" in p) {
+    p.fill =
+      p.color ??
+      (bg
+        ? dominantColor(
+            canvasOf(bg, shape.x + shape.width + 1, shape.y + shape.height + 1),
+            shape,
+          )
+        : shape.fill);
+    delete p.color;
+  }
+  if (shape.type === "step") {
+    // A step's own number stays; only its look changes.
+    delete p.n;
+  }
+  return p;
+}
+
+export default function Editor({
+  doc,
+  onClose,
+  onSaved,
+  notify,
+  onOpenSnip,
+}: Props) {
+  const [original, setOriginal] = useState<HTMLImageElement>();
   const originalRef = useRef<Uint8Array>(new Uint8Array());
   const [path, setPath] = useState<string | null>(doc.path);
-  const history = useHistory<DocState>({ shapes: [], crop: null });
-  const { shapes, crop } = history.present;
+  const history = useHistory<DocState>({ shapes: [], crop: null, base: null });
+  const { shapes, crop, base } = history.present;
   const [savedDoc, setSavedDoc] = useState<DocState>(history.present);
   const dirty = history.present !== savedDoc;
 
   const [tool, setToolState] = useState<Tool>("arrow");
-  const [color, setColor] = useState(COLORS[0]);
-  const [highlight, setHighlight] = useState(HIGHLIGHTER_COLORS[0]);
-  const [size, setSize] = useState<Size>("m");
-  const [filled, setFilled] = useState(false);
-  const [rounded, setRounded] = useState(false);
-  const [dash, setDash] = useState<LineStyle>("solid");
-  const [bothEnds, setBothEnds] = useState(false);
-  const [opacity, setOpacity] = useState(1);
-  const [shadow, setShadow] = useState(true);
+  const [styles, setStylesState] = useState<Styles>(loadStyles);
+  const [theme, setThemeState] = useState(loadTheme);
+  const [favorites, setFavorites] = useState<Favorite[]>(loadFavorites);
+  const [bar, setBarState] = useState<Tool[]>(loadBar);
+  const [recentTool, setRecentTool] = useState<Tool | null>(null);
   const [panelOpen, setPanelOpen] = useState(panelInitiallyOpen);
-  /** The Copy button shows a check for a moment after copying. */
+  const [showRecent, setShowRecent] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number>(undefined);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draft, setDraftState] = useState<Shape | null>(null);
-  const [editing, setEditing] = useState<{
-    id: string;
-    base: DocState;
-  } | null>(null);
-  // Pointer handlers read these synchronously, between renders.
   const draftRef = useRef<Shape | null>(null);
-  const origin = useRef<{ x: number; y: number } | null>(null);
-  // Blur and the canvas mousedown can both end an edit in the same click.
-  const editingRef = useRef(editing);
   const setDraft = (next: Shape | null) => {
     draftRef.current = next;
     setDraftState(next);
   };
+  const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const [editing, setEditing] = useState<{ id: string; base: DocState } | null>(
+    null,
+  );
+  const editingRef = useRef(editing);
   const [busy, setBusy] = useState(false);
+  /** Where the next step of each sequence starts after a Reset. */
+  const stepReset = useRef<Partial<Record<StepSequence, number>>>({});
 
-  /** The crop being dragged out while the crop tool is active. */
   const [cropDraft, setCropDraft] = useState<Area | null>(null);
-  const toolBeforeCrop = useRef<Tool>("select");
+  const toolBeforeCrop = useRef<Tool>("arrow");
 
-  /** `null` fits the image to the window (and keeps fitting it as the window resizes). */
   const [zoom, setZoom] = useState<View | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  const contentRef = useRef<Konva.Layer>(null);
   const uiLayerRef = useRef<Konva.Layer>(null);
   const trRef = useRef<Konva.Transformer>(null);
   const cropTrRef = useRef<Konva.Transformer>(null);
@@ -315,17 +357,43 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     return () => observer.disconnect();
   }, []);
 
-  // ---- view: crop area, zoom and pan ------------------------------------------
+  // ---- preferences ------------------------------------------------------------------------
 
-  const iw = background?.naturalWidth ?? 0;
-  const ih = background?.naturalHeight ?? 0;
+  const setStyles = (next: Styles) => {
+    setStylesState(next);
+    saveStyles(next);
+  };
+  const setTheme = (name: string) => {
+    setThemeState(name);
+    saveTheme(name);
+  };
+  const setBar = (next: Tool[]) => {
+    setBarState(next);
+    saveBar(next);
+  };
+  const toggleFavorite = (fav: Favorite) => {
+    const has = favorites.some(
+      (f) => f.tool === fav.tool && sameStyle(f.style, fav.style),
+    );
+    const next = has
+      ? favorites.filter(
+          (f) => !(f.tool === fav.tool && sameStyle(f.style, fav.style)),
+        )
+      : [...favorites, fav];
+    setFavorites(next);
+    saveFavorites(next);
+  };
+
+  // ---- view: crop area, zoom and pan --------------------------------------------------------
+
+  const bg: HTMLImageElement | undefined = base?.image ?? original;
+  const iw = base?.width ?? original?.naturalWidth ?? 0;
+  const ih = base?.height ?? original?.naturalHeight ?? 0;
   const dpr = window.devicePixelRatio;
   const cropping = tool === "crop";
   const full: Area = { x: 0, y: 0, width: iw, height: ih };
-  /** The part of the image on show: all of it while cropping, so the crop can grow back. */
   const area = cropping ? full : (crop ?? full);
 
-  // Fit to the window, but never larger than the pixels were on screen.
   const fitScale =
     iw && viewport.width
       ? Math.max(
@@ -337,15 +405,11 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           ),
         )
       : 1;
-  /** Sizes are picked in screen pixels at fit-to-window zoom and stored in image pixels. */
-  const px = (value: number) => value / fitScale;
 
-  /** Centres the area when it fits, otherwise keeps it from being panned out of sight. */
   const clampView = (v: View): View => {
     const axis = (pos: number, start: number, length: number, room: number) => {
       const size = length * v.scale;
       const offset = start * v.scale;
-      // Whole pixels, or 100% zoom would resample the image and look soft.
       if (size <= room) return Math.round((room - size) / 2 - offset);
       return Math.round(
         clamp(pos, room - MARGIN - size - offset, MARGIN - offset),
@@ -359,19 +423,15 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   };
 
   const view = clampView(zoom ?? { scale: fitScale, x: 0, y: 0 });
-  // Wheel and drag events can arrive faster than renders; they build on the latest view.
   const viewRef = useRef(view);
   useLayoutEffect(() => {
     viewRef.current = view;
   });
-
   const setView = (v: View) => {
     const next = clampView(v);
     viewRef.current = next;
     setZoom(next);
   };
-
-  /** Zooms keeping the image point under `anchor` (container pixels) in place. */
   const zoomTo = (scale: number, anchor?: { x: number; y: number }) => {
     const v = viewRef.current;
     const a = anchor ?? { x: viewport.width / 2, y: viewport.height / 2 };
@@ -380,7 +440,6 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     const iy = (a.y - v.y) / v.scale;
     setView({ scale: s, x: a.x - ix * s, y: a.y - iy * s });
   };
-
   const stepZoom = (direction: 1 | -1) => {
     const current = viewRef.current.scale * dpr;
     const next =
@@ -391,11 +450,9 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
           ZOOM_STEPS[0]);
     zoomTo(next / dpr);
   };
-
   const fitToWindow = () => setZoom(null);
 
   const startPan = (start: MouseEvent) => {
-    // Fitted, the whole image is already in view.
     if (!zoom) return;
     const v0 = viewRef.current;
     setPanning(true);
@@ -412,8 +469,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
 
   const wheel = useRef<(e: WheelEvent) => void>(() => {});
   const onWheel = (e: WheelEvent) => {
-    if (!background) return;
-    // Ctrl+wheel would otherwise zoom the whole web view.
+    if (!bg) return;
     e.preventDefault();
     const unit =
       e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewport.height : 1;
@@ -440,16 +496,12 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     return () => el.removeEventListener("wheel", listener);
   }, []);
 
-  // ---- export, save, copy -------------------------------------------------
+  // ---- export, save, copy -------------------------------------------------------------------
 
-  /** The image with its annotations, at full resolution, cut to `region`. */
   const renderCanvas = useCallback(
     (region: Area | null) => {
       const stage = stageRef.current;
       if (!stage) throw new Error("Editor not ready");
-      // Render at the image's own size and scale 1 rather than scaling the on-screen stage
-      // back up: its size is rounded to whole screen pixels, which made exports a pixel or
-      // two off.
       const r = region ?? { x: 0, y: 0, width: iw, height: ih };
       const onScreen = {
         size: stage.size(),
@@ -474,21 +526,22 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     [iw, ih],
   );
 
-  const exportPng = useCallback(
-    (region: Area | null) => canvasPng(renderCanvas(region)),
-    [renderCanvas],
-  );
-
-  /** Saves the flattened PNG to the gallery and the editable `.snip` project beside it. */
   const save = useCallback(
     async (state: DocState) => {
       const canvas = renderCanvas(state.crop);
       const project = await encodeSnip({
         original: originalRef.current,
-        width: iw,
-        height: ih,
+        width: original?.naturalWidth ?? iw,
+        height: original?.naturalHeight ?? ih,
         crop: state.crop,
         shapes: state.shapes,
+        base: state.base
+          ? {
+              png: new Uint8Array(state.base.png),
+              width: state.base.width,
+              height: state.base.height,
+            }
+          : null,
         thumbnail: await canvasPng(thumbnailOf(canvas)),
       });
       const saved = await api.saveSnip(await canvasPng(canvas), path, project);
@@ -496,7 +549,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       setSavedDoc(state);
       onSaved();
     },
-    [renderCanvas, iw, ih, onSaved, path],
+    [renderCanvas, iw, ih, original, onSaved, path],
   );
 
   const run = useCallback(
@@ -514,9 +567,8 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     [busy, notify],
   );
 
-  // ---- crop -------------------------------------------------------------------
+  // ---- crop ---------------------------------------------------------------------------------
 
-  /** Whole pixels, inside the image. */
   const clampArea = (a: Area): Area => {
     const x0 = clamp(Math.round(a.x), 0, iw);
     const y0 = clamp(Math.round(a.y), 0, ih);
@@ -525,15 +577,6 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   };
 
-  const enterCrop = () => {
-    toolBeforeCrop.current = tool;
-    setSelectedId(null);
-    setCropDraft(crop ?? full);
-    setZoom(null);
-    setToolState("crop");
-  };
-
-  /** Ends crop mode, applying the drawn crop unless `cancel`. Returns the resulting doc. */
   const leaveCrop = (
     cancel = false,
     next: Tool = toolBeforeCrop.current,
@@ -556,23 +599,28 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     return state;
   };
 
-  /** The document as it will be exported: a crop in progress is applied first. */
   const settleCrop = () => (cropping ? leaveCrop() : history.present);
 
+  const onBar = new Set(bar);
   const setTool = (next: Tool) => {
+    // A tool picked from More stays on the bar until another replaces it.
+    if (!onBar.has(next)) setRecentTool(next);
     if (next === tool) return;
-    // Shapes can't be picked while drawing, so a leftover selection would only confuse the
-    // toolbar about what it is styling.
-    if (next !== "select") setSelectedId(null);
-    if (next === "crop") enterCrop();
-    else if (cropping) leaveCrop(false, next);
+    finishEditing();
+    setSelectedIds([]);
+    if (next === "crop") {
+      toolBeforeCrop.current = tool;
+      setCropDraft(crop ?? full);
+      setZoom(null);
+      setToolState("crop");
+    } else if (cropping) leaveCrop(false, next);
     else setToolState(next);
   };
 
   const copy = () =>
     run(async () => {
       const state = settleCrop();
-      await api.copyPng(await exportPng(state.crop));
+      await api.copyPng(await canvasPng(renderCanvas(state.crop)));
       if (state !== savedDoc) await save(state);
       window.clearTimeout(copiedTimer.current);
       setCopied(true);
@@ -582,7 +630,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   const saveNow = () =>
     run(async () => {
       await save(settleCrop());
-      notify("Saved to gallery");
+      notify("Saved to the library");
     });
 
   const close = () =>
@@ -592,7 +640,6 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         try {
           await save(state);
         } catch (e) {
-          // Close is the only way out of the editor, so a failed save mustn't trap the user.
           const discard = window.confirm(
             `Couldn't save your changes: ${errorMessage(e)}\n\nClose anyway and discard them?`,
           );
@@ -602,7 +649,6 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
       onClose();
     });
 
-  // A new capture arriving while editing: keep the current work, then switch.
   const saveRef = useRef({ dirty, save: () => save(history.present) });
   useEffect(() => {
     saveRef.current = { dirty, save: () => save(history.present) };
@@ -611,20 +657,20 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     let cancelled = false;
     (async () => {
       if (saveRef.current.dirty) await saveRef.current.save().catch(() => {});
-      const original = doc.project
+      const originalBytes = doc.project
         ? doc.project.original
         : new Uint8Array(doc.png);
-      const image = await loadImage(bufferOf(original));
+      const image = await loadImage(bufferOf(originalBytes));
       const state: DocState = doc.project
         ? await projectState(doc.project)
-        : { shapes: [], crop: null };
+        : { shapes: [], crop: null, base: null };
       if (cancelled) return;
-      originalRef.current = original;
-      setBackground(image);
+      originalRef.current = originalBytes;
+      setOriginal(image);
       setPath(doc.path);
       history.reset(state);
       setSavedDoc(state);
-      setSelectedId(null);
+      setSelectedIds([]);
       editingRef.current = null;
       setEditing(null);
       setCropDraft(null);
@@ -637,123 +683,90 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the document changes
   }, [doc]);
 
-  // ---- shape edits ----------------------------------------------------------
+  // ---- shape edits ----------------------------------------------------------------------------
 
   const commitShapes = (next: Shape[]) =>
     history.commit({ ...history.present, shapes: next });
-
+  /** Adds an object to the latest document (drags and async tools may finish out of order). */
+  const addShape = (shape: Shape) =>
+    history.commitWith((present) => ({
+      ...present,
+      shapes: [...present.shapes, shape],
+    }));
   const replaceShapes = (next: Shape[]) =>
     history.replace({ ...history.present, shapes: next });
 
   const update = (id: string, patch: ShapePatch) =>
     commitShapes(
-      shapes.map((s) => (s.id === id ? ({ ...s, ...patch } as Shape) : s)),
+      shapes.map((s) => {
+        if (s.id !== id) return s;
+        const next = { ...s, ...patch } as Shape;
+        return next.type === "text" || next.type === "callout"
+          ? fitText(next)
+          : next;
+      }),
     );
 
-  const remove = (id: string) =>
-    commitShapes(shapes.filter((s) => s.id !== id));
+  const selected = shapes.filter((s) => selectedIds.includes(s.id));
+  const single = selected.length === 1 ? selected[0] : null;
 
-  const selected = shapes.find((s) => s.id === selectedId);
+  /** The panel shows the selected objects' tool, or else the active tool. */
+  const panelTool: Tool =
+    single && toolOf(single) !== "move"
+      ? toolOf(single)
+      : selected.length > 1 &&
+          selected.every((s) => toolOf(s) === toolOf(selected[0]))
+        ? toolOf(selected[0])
+        : tool;
 
-  const pickColor = (value: string) => {
-    if ((selected?.type ?? tool) === "highlighter") setHighlight(value);
-    else setColor(value);
-    if (!selected) return;
-    if (selected.type === "text") update(selected.id, { fill: value });
-    else if (selected.type === "callout" || selected.type === "step")
-      update(selected.id, { fill: value });
-    else if ("stroke" in selected) update(selected.id, { stroke: value });
+  /** The panel's values: the single selected object's, or the tool's. */
+  const panelStyles: Styles = (() => {
+    if (!single || !(toolOf(single) in styles)) return styles;
+    const key = toolOf(single) as StyledTool;
+    const s = single as unknown as Record<string, unknown>;
+    const merged = { ...styles[key] } as Record<string, unknown>;
+    for (const k of Object.keys(merged)) if (k in s) merged[k] = s[k];
+    if (single.type === "arrow" || single.type === "line")
+      merged.bezier = !!single.control;
+    if (single.type === "block") merged.color = single.fill;
+    return { ...styles, [key]: merged } as Styles;
+  })();
+
+  /** A change from the side panel or a Quick Style: the tool's style and the selection. */
+  const applyStyle = (t: StyledTool, patch: QuickStyle) => {
+    setStyles({ ...styles, [t]: { ...styles[t], ...patch } } as Styles);
+    const targets = selected.filter((s) => toolOf(s) === t);
+    if (!targets.length) return;
+    const ids = new Set(targets.map((s) => s.id));
+    commitShapes(
+      shapes.map((s) => {
+        if (!ids.has(s.id)) return s;
+        const next = { ...s, ...shapePatch(s, patch, bg ?? null) } as Shape;
+        return next.type === "text" || next.type === "callout"
+          ? fitText(next)
+          : next;
+      }),
+    );
   };
 
-  // The style controls show and change the selected shape, or set up the next one drawn.
-  const boxSelected =
-    selected?.type === "rect" || selected?.type === "ellipse"
-      ? selected
-      : undefined;
-  const pathSelected =
-    selected?.type === "arrow" ||
-    selected?.type === "line" ||
-    selected?.type === "pen"
-      ? selected
-      : undefined;
-  const styledSelected = boxSelected ?? pathSelected;
-  const style: ShapeStyle = {
-    filled: boxSelected ? boxSelected.filled : filled,
-    rounded: boxSelected ? !!boxSelected.rounded : rounded,
-    dash: styledSelected ? (styledSelected.dash ?? "solid") : dash,
-    bothEnds: pathSelected ? !!pathSelected.bothEnds : bothEnds,
-    opacity: styledSelected ? (styledSelected.opacity ?? 1) : opacity,
-    shadow: styledSelected ? !!styledSelected.shadow : shadow,
+  const applyQuickStyle = (t: StyledTool, style: QuickStyle) => {
+    if (tool !== t && !selected.some((s) => toolOf(s) === t))
+      setTool(t as Tool);
+    applyStyle(t, style);
   };
 
-  const setStyle = (patch: Partial<ShapeStyle>) => {
-    if (patch.filled !== undefined) setFilled(patch.filled);
-    if (patch.rounded !== undefined) setRounded(patch.rounded);
-    if (patch.dash !== undefined) setDash(patch.dash);
-    if (patch.bothEnds !== undefined) setBothEnds(patch.bothEnds);
-    if (patch.opacity !== undefined) setOpacity(patch.opacity);
-    if (patch.shadow !== undefined) setShadow(patch.shadow);
-    if (styledSelected) update(styledSelected.id, patch);
+  const removeSelected = () => {
+    if (!selectedIds.length) return;
+    const ids = new Set(selectedIds);
+    commitShapes(shapes.filter((s) => !ids.has(s.id)));
+    setSelectedIds([]);
   };
 
-  /** The size of the next shape, and of the selected one. */
-  const sizePatch = (shape: Shape, s: Size): ShapePatch | null => {
-    switch (shape.type) {
-      case "rect":
-      case "ellipse":
-      case "arrow":
-      case "line":
-      case "pen":
-        return { strokeWidth: px(STROKE[s]) };
-      case "highlighter":
-        return { strokeWidth: px(HIGHLIGHT[s]) };
-      case "text":
-        return { fontSize: px(FONT[s]) };
-      case "callout":
-        return { fontSize: px(FONT[s] * 0.8) };
-      case "step":
-        return { radius: px(STEP_RADIUS[s]) };
-      case "pixelate":
-        return { amount: px(PIXEL[s]) };
-      case "blur":
-        return { amount: px(BLUR[s]) };
-      default:
-        return null;
-    }
-  };
-
-  const applySize = (s: Size) => {
-    setSize(s);
-    const patch = selected && sizePatch(selected, s);
-    if (selected && patch) update(selected.id, patch);
-  };
-
-  /** A quick-style tile: colour, size and look in one undo step. */
-  const applyPreset = (p: Preset) => {
-    if ((selected?.type ?? tool) === "highlighter") setHighlight(p.color);
-    else setColor(p.color);
-    setSize(p.size);
-    const look: Partial<ShapeStyle> = {};
-    if (p.dash !== undefined) look.dash = p.dash;
-    if (p.filled !== undefined) look.filled = p.filled;
-    if (p.shadow !== undefined) look.shadow = p.shadow;
-    if (look.dash) setDash(look.dash);
-    if (look.filled !== undefined) setFilled(look.filled);
-    if (look.shadow !== undefined) setShadow(look.shadow);
-    if (!selected) return;
-    const colorPatch: ShapePatch =
-      selected.type === "text" ||
-      selected.type === "callout" ||
-      selected.type === "step"
-        ? { fill: p.color }
-        : "stroke" in selected
-          ? { stroke: p.color }
-          : {};
-    update(selected.id, {
-      ...colorPatch,
-      ...sizePatch(selected, p.size),
-      ...(styledSelected && look),
-    });
+  const selectAllOf = (t: Tool) => {
+    const ids = shapes
+      .filter((s) => (t === "move" ? true : toolOf(s) === t))
+      .map((s) => s.id);
+    setSelectedIds(ids);
   };
 
   const togglePanel = () =>
@@ -791,50 +804,117 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
         width,
         height,
       };
-      commitShapes([...shapes, shape]);
-      setTool("select");
-      setSelectedId(shape.id);
+      addShape(shape);
+      setSelectedIds([shape.id]);
     });
 
-  // ---- text editing -----------------------------------------------------
+  // ---- text editing -------------------------------------------------------------------------
 
-  const startEditing = (shape: TextShape | CalloutShape, base: DocState) => {
-    setSelectedId(null);
-    editingRef.current = { id: shape.id, base };
+  const startEditing = (
+    shape: TextShape | CalloutShape,
+    baseState: DocState,
+  ) => {
+    setSelectedIds([]);
+    editingRef.current = { id: shape.id, base: baseState };
     setEditing(editingRef.current);
   };
 
   const editingShape = shapes.find((s) => s.id === editing?.id) as
     TextShape | CalloutShape | undefined;
 
-  const finishEditing = () => {
+  function finishEditing() {
     const current = editingRef.current;
     if (!current) return;
     editingRef.current = null;
-    const shape = shapes.find((s) => s.id === current.id);
+    const present = history.present;
+    const shape = present.shapes.find((s) => s.id === current.id);
+    // An empty text box disappears; an empty callout stays (it may be just a pointer).
     const next =
-      shape && "text" in shape && !shape.text.trim()
-        ? shapes.filter((s) => s.id !== current.id)
-        : shapes;
-    const base = current.base;
+      shape && shape.type === "text" && !shape.text.trim()
+        ? present.shapes.filter((s) => s.id !== current.id)
+        : present.shapes;
     setEditing(null);
+    const baseState = current.base;
     const unchanged =
-      next.length === base.shapes.length &&
+      next.length === baseState.shapes.length &&
       next.every(
         (s, i) =>
-          s === base.shapes[i] ||
-          JSON.stringify(s) === JSON.stringify(base.shapes[i]),
+          s === baseState.shapes[i] ||
+          JSON.stringify(s) === JSON.stringify(baseState.shapes[i]),
       );
-    if (unchanged) history.replace(base);
-    else history.commit({ ...history.present, shapes: next }, base);
+    if (unchanged) history.replace(baseState);
+    else history.commit({ ...present, shapes: next }, baseState);
+    if (shape && next.includes(shape)) setSelectedIds([shape.id]);
+  }
+
+  // ---- pixel tools --------------------------------------------------------------------------
+
+  const baseCanvas = () => canvasOf(bg!, iw, ih);
+
+  /** Lifts the masked pixels into a movable image object, leaving a filled hole. */
+  const liftToObject = async (
+    mask: Uint8Array,
+    bbox: Area,
+    fill: "transparent" | "auto",
+  ) => {
+    const canvas = baseCanvas();
+    const piece = liftMask(canvas, mask, bbox, fill);
+    const [nextBase, png] = await Promise.all([
+      toBase(canvas),
+      canvasPngBuffer(piece),
+    ]);
+    const shape: Shape = {
+      id: newId(),
+      type: "image",
+      image: await loadImage(png),
+      png,
+      x: bbox.x,
+      y: bbox.y,
+      width: bbox.width,
+      height: bbox.height,
+    };
+    history.commitWith((present) => ({
+      ...present,
+      base: nextBase,
+      shapes: [...present.shapes, shape],
+    }));
+    setSelectedIds([shape.id]);
   };
 
-  // ---- drawing --------------------------------------------------------------
+  const fillAt = (p: { x: number; y: number }) =>
+    run(async () => {
+      const s = styles.fill;
+      const canvas = baseCanvas();
+      const { mask, bbox } = colorMask(canvas, p.x, p.y, s.tolerance);
+      if (!bbox) return;
+      paintMask(canvas, mask, s.color, s.opacity);
+      const nextBase = await toBase(canvas);
+      history.commitWith((present) => ({ ...present, base: nextBase }));
+    });
+
+  const wandAt = (p: { x: number; y: number }) =>
+    run(async () => {
+      const s = styles.magicwand;
+      const { mask, bbox } = colorMask(
+        baseCanvas(),
+        p.x,
+        p.y,
+        s.tolerance,
+        s.global,
+      );
+      if (!bbox) return;
+      await liftToObject(mask, bbox, s.fillMode);
+    });
+
+  // ---- drawing ------------------------------------------------------------------------------
 
   const pointer = () =>
     stageRef.current?.getRelativePointerPosition() ?? { x: 0, y: 0 };
+  const pointerOf = (evt: PointerEvent) => {
+    stageRef.current?.setPointersPositions(evt);
+    return pointer();
+  };
 
-  /** Drag on the image outside the current crop box draws a new one. */
   const startCropDrag = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (
       e.target.id() === "crop-rect" ||
@@ -848,22 +928,11 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     });
     const start = inside(pointer());
     const previous = cropDraft;
-    const areaTo = (evt: PointerEvent): Area => {
-      stageRef.current?.setPointersPositions(evt);
-      const p = inside(pointer());
-      return {
-        x: Math.min(start.x, p.x),
-        y: Math.min(start.y, p.y),
-        width: Math.abs(p.x - start.x),
-        height: Math.abs(p.y - start.y),
-      };
-    };
     trackPointer(
-      (evt) => setCropDraft(areaTo(evt)),
+      (evt) => setCropDraft(norm(start, inside(pointerOf(evt)))),
       (evt) => {
-        const a = areaTo(evt);
+        const a = norm(start, inside(pointerOf(evt)));
         const tiny = 4 / viewRef.current.scale;
-        // A click (rather than a drag) leaves the box as it was.
         setCropDraft(
           a.width < tiny || a.height < tiny ? previous : clampArea(a),
         );
@@ -871,294 +940,624 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     );
   };
 
+  /** Next number for a new step in `sequence`. */
+  const nextStep = (sequence: StepSequence) => {
+    const reset = stepReset.current[sequence];
+    if (reset !== undefined) {
+      stepReset.current[sequence] = reset + 1;
+      return reset;
+    }
+    return (
+      Math.max(
+        0,
+        ...shapes.map((s) =>
+          s.type === "step" && s.sequence === sequence ? s.n : 0,
+        ),
+      ) + 1
+    );
+  };
+
   const onStageMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1 || (e.evt.button === 0 && spaceHeld)) {
-      // Middle button or Space+drag pans; also stops Windows' middle-click autoscroll.
       e.evt.preventDefault();
       startPan(e.evt);
       return;
     }
-    if (editing) {
+    if (editingRef.current) {
       finishEditing();
       return;
     }
-    if (e.evt.button !== 0) return;
+    if (e.evt.button !== 0 || !bg) return;
     if (cropping) {
       startCropDrag(e);
       return;
     }
-    const onEmpty =
-      e.target === e.target.getStage() || e.target.name() === "background";
-    if (tool === "select") {
-      if (onEmpty) setSelectedId(null);
-      return;
-    }
-    // Keep focus where it is (e.g. on a text box this click creates).
+    // Clicks on transformer anchors and handles belong to them.
+    if (e.target.getLayer() === uiLayerRef.current) return;
     e.evt.preventDefault();
-    setSelectedId(null);
-    const p = pointer();
-    const base = { id: newId(), x: p.x, y: p.y };
-    origin.current = p;
+    const additive = e.evt.shiftKey || e.evt.ctrlKey;
+    if (!additive) setSelectedIds([]);
+    const start = pointer();
 
     switch (tool) {
-      case "rect":
-      case "ellipse":
-        setDraft({
-          ...base,
-          type: tool,
-          width: 0,
-          height: 0,
-          stroke: color,
-          strokeWidth: px(STROKE[size]),
-          filled,
-          dash,
-          opacity,
-          shadow,
-          ...(tool === "rect" && { rounded }),
+      case "move":
+      case "favorites": {
+        trackPointer(
+          (evt) =>
+            setOverlay({ kind: "marquee", area: norm(start, pointerOf(evt)) }),
+          (evt) => {
+            setOverlay(null);
+            const a = norm(start, pointerOf(evt));
+            if (a.width < 3 && a.height < 3) return;
+            const layer = contentRef.current;
+            if (!layer) return;
+            const hits = shapes.filter((s) => {
+              const node = layer.findOne(`#${s.id}`);
+              if (!node) return false;
+              const r = node.getClientRect({ relativeTo: layer });
+              return (
+                r.x < a.x + a.width &&
+                r.x + r.width > a.x &&
+                r.y < a.y + a.height &&
+                r.y + r.height > a.y
+              );
+            });
+            setSelectedIds((ids) => [
+              ...new Set([...(additive ? ids : []), ...hits.map((s) => s.id)]),
+            ]);
+          },
+        );
+        return;
+      }
+      case "fill":
+        void fillAt(start);
+        return;
+      case "magicwand":
+        void wandAt(start);
+        return;
+      case "eraser": {
+        const s = styles.eraser;
+        const pts = [start.x, start.y];
+        setOverlay({ kind: "erase", points: pts, width: s.width });
+        trackPointer(
+          (evt) => {
+            const p = pointerOf(evt);
+            pts.push(p.x, p.y);
+            setOverlay({ kind: "erase", points: [...pts], width: s.width });
+          },
+          () => {
+            setOverlay(null);
+            void run(async () => {
+              const canvas = baseCanvas();
+              eraseStroke(canvas, pts, s.width, s.opacity, s.antialias);
+              const nextBase = await toBase(canvas);
+              history.commitWith((present) => ({ ...present, base: nextBase }));
+            });
+          },
+        );
+        return;
+      }
+      case "selection": {
+        const s = styles.selection;
+        const pts = [start.x, start.y];
+        const make = (p: { x: number; y: number }): Overlay => {
+          if (s.shape === "freehand") pts.push(p.x, p.y);
+          const xs = pts.filter((_, i) => i % 2 === 0);
+          const ys = pts.filter((_, i) => i % 2 === 1);
+          return {
+            kind: "select",
+            shape: s.shape,
+            points: [...pts],
+            area:
+              s.shape === "freehand"
+                ? {
+                    x: Math.min(...xs),
+                    y: Math.min(...ys),
+                    width: Math.max(...xs) - Math.min(...xs),
+                    height: Math.max(...ys) - Math.min(...ys),
+                  }
+                : norm(start, p),
+          };
+        };
+        let last: Overlay | null = null;
+        trackPointer(
+          (evt) => {
+            last = make(pointerOf(evt));
+            setOverlay(last);
+          },
+          () => {
+            setOverlay(null);
+            const o = last as Extract<Overlay, { kind: "select" }> | null;
+            if (!o || o.area.width < 3 || o.area.height < 3) return;
+            void run(async () => {
+              const { mask, bbox } = shapeMask(
+                iw,
+                ih,
+                o.shape,
+                o.area,
+                o.points,
+              );
+              if (bbox) await liftToObject(mask, bbox, s.fillMode);
+            });
+          },
+        );
+        return;
+      }
+      case "cutout": {
+        const s = styles.cutout;
+        const band = (p: { x: number; y: number }): Overlay => ({
+          kind: "band",
+          vertical: s.vertical,
+          from: clamp(
+            Math.min(s.vertical ? start.x : start.y, s.vertical ? p.x : p.y),
+            0,
+            s.vertical ? iw : ih,
+          ),
+          to: clamp(
+            Math.max(s.vertical ? start.x : start.y, s.vertical ? p.x : p.y),
+            0,
+            s.vertical ? iw : ih,
+          ),
         });
-        break;
-      case "pixelate":
-      case "blur":
-        setDraft({
-          ...base,
-          type: tool,
-          width: 0,
-          height: 0,
-          amount: px(tool === "blur" ? BLUR[size] : PIXEL[size]),
-        });
-        break;
+        let last: Overlay | null = null;
+        trackPointer(
+          (evt) => {
+            last = band(pointerOf(evt));
+            setOverlay(last);
+          },
+          () => {
+            setOverlay(null);
+            const o = last as Extract<Overlay, { kind: "band" }> | null;
+            if (!o || o.to - o.from < 2) return;
+            void run(async () => {
+              const { canvas, shift } = cutOut(
+                baseCanvas(),
+                o.vertical,
+                o.from,
+                o.to,
+                s.edge,
+              );
+              const nextBase = await toBase(canvas);
+              history.commitWith((present) => ({
+                crop: null,
+                base: nextBase,
+                // Objects beyond the cut move back with the image.
+                shapes: present.shapes.map((sh) => {
+                  const pos = o.vertical ? sh.x : sh.y;
+                  if (pos < o.to) return sh;
+                  return o.vertical
+                    ? { ...sh, x: sh.x - shift }
+                    : { ...sh, y: sh.y - shift };
+                }),
+              }));
+            });
+          },
+        );
+        return;
+      }
+    }
+
+    const base = { id: newId(), x: start.x, y: start.y };
+    switch (tool) {
       case "arrow":
-      case "line":
+      case "line": {
+        const s = styles[tool];
         setDraft({
           ...base,
           type: tool,
           points: [0, 0, 0, 0],
-          stroke: color,
-          strokeWidth: px(STROKE[size]),
-          dash,
-          opacity,
-          shadow,
-          ...(tool === "arrow" && { bothEnds }),
+          control: null,
+          stroke: s.stroke,
+          strokeWidth: s.strokeWidth,
+          dash: s.dash,
+          startCap: s.startCap,
+          endCap: s.endCap,
+          startSize: s.startSize,
+          endSize: s.endSize,
+          opacity: s.opacity,
+          shadow: s.shadow,
         });
         break;
-      case "pen":
+      }
+      case "pen": {
+        const s = styles.pen;
         setDraft({
           ...base,
-          type: tool,
+          type: "pen",
           points: [0, 0],
-          stroke: color,
-          strokeWidth: px(STROKE[size]),
-          dash,
-          opacity,
-          shadow,
+          stroke: s.stroke,
+          strokeWidth: s.strokeWidth,
+          nib: s.nib,
+          smooth: s.smooth,
+          opacity: s.opacity,
+          shadow: s.shadow,
         });
         break;
+      }
+      case "shape": {
+        const s = styles.shape;
+        setDraft({
+          ...base,
+          type: "shape",
+          kind: s.kind,
+          width: 0,
+          height: 0,
+          fill: s.fill,
+          outline: s.outline,
+          strokeWidth: s.strokeWidth,
+          dash: s.dash,
+          opacity: s.opacity,
+          shadow: s.shadow,
+        });
+        break;
+      }
       case "highlighter":
         setDraft({
           ...base,
-          type: tool,
-          points: [0, 0],
-          stroke: highlight,
-          strokeWidth: px(HIGHLIGHT[size]),
+          type: "highlight",
+          width: 0,
+          height: 0,
+          color: styles.highlighter.color,
+          opacity: styles.highlighter.opacity,
         });
         break;
-      case "callout":
+      case "blur": {
+        const s = styles.blur;
+        setDraft({
+          ...base,
+          type: "blur",
+          mode: s.mode,
+          ellipse: s.ellipse,
+          intensity: s.intensity,
+          color: s.color,
+          width: 0,
+          height: 0,
+        });
+        break;
+      }
+      case "magnify": {
+        const s = styles.magnify;
+        setDraft({
+          ...base,
+          type: "magnify",
+          lens: s.lens,
+          scale: s.scale,
+          outline: s.outline,
+          strokeWidth: s.strokeWidth,
+          width: 0,
+          height: 0,
+        });
+        break;
+      }
+      case "simplify": {
+        const s = styles.simplify;
+        setDraft({
+          ...base,
+          type: "block",
+          width: 0,
+          height: 0,
+          fill: s.color ?? "#9aa4b2",
+          radius: s.radius,
+          opacity: s.opacity,
+        });
+        break;
+      }
+      case "stamp": {
+        const s = styles.stamp;
+        setDraft({
+          ...base,
+          type: "stamp",
+          glyph: s.glyph,
+          width: 0,
+          height: 0,
+          opacity: s.opacity,
+          shadow: s.shadow,
+        });
+        break;
+      }
+      case "text": {
+        const s = styles.text;
+        setDraft({
+          ...base,
+          type: "text",
+          text: "",
+          width: 0,
+          height: 0,
+          font: s.font,
+          fontSize: s.fontSize,
+          textColor: s.textColor,
+          outline: s.outline,
+          outlineWidth: s.outlineWidth,
+          bold: s.bold,
+          italic: s.italic,
+          underline: s.underline,
+          align: s.align,
+          valign: s.valign,
+          padding: s.padding,
+          opacity: s.opacity,
+          shadow: s.shadow,
+        });
+        break;
+      }
+      case "callout": {
+        const s = styles.callout;
         setDraft({
           ...base,
           type: "callout",
           text: "",
-          width: px(220),
-          fill: color,
-          fontSize: px(FONT[size] * 0.8),
-          tailX: 0,
-          tailY: 0,
+          width: 0,
+          height: 0,
+          body: s.body,
+          fill: s.fill,
+          outline: s.outline,
+          strokeWidth: s.strokeWidth,
+          dash: s.dash,
+          font: s.font,
+          fontSize: s.fontSize,
+          textColor: s.textColor,
+          bold: s.bold,
+          italic: s.italic,
+          underline: s.underline,
+          align: s.align,
+          valign: s.valign,
+          padding: s.padding,
+          tail: null,
+          arrowColor: s.arrowColor,
+          arrowWidth: s.arrowWidth,
+          arrowDash: s.arrowDash,
+          arrowCap: s.arrowCap,
+          opacity: s.opacity,
+          shadow: s.shadow,
         });
-        break;
-      case "text": {
-        origin.current = null;
-        const fontSize = px(FONT[size]);
-        const shape: TextShape = {
-          ...base,
-          y: p.y - (fontSize * TEXT_LINE_HEIGHT) / 2,
-          type: "text",
-          text: "",
-          fill: color,
-          fontSize,
-        };
-        replaceShapes([...shapes, shape]);
-        startEditing(shape, history.present);
         break;
       }
       case "step": {
-        origin.current = null;
-        const n =
-          Math.max(0, ...shapes.map((s) => (s.type === "step" ? s.n : 0))) + 1;
-        commitShapes([
-          ...shapes,
-          {
-            ...base,
-            type: "step",
-            n,
-            fill: color,
-            radius: px(STEP_RADIUS[size]),
-          },
-        ]);
-        break;
+        const s = styles.step;
+        const shape: Shape = {
+          ...base,
+          type: "step",
+          n: nextStep(s.sequence),
+          sequence: s.sequence,
+          style: s.style,
+          size: s.size,
+          fill: s.fill,
+          textColor: s.textColor,
+          opacity: s.opacity,
+          shadow: s.shadow,
+          pointAngle: 135,
+        };
+        addShape(shape);
+        setSelectedIds([shape.id]);
+        return;
+      }
+      default:
+        return;
+    }
+    trackPointer(
+      (evt) => onDraftMove(start, pointerOf(evt), evt.shiftKey),
+      () => onDraftUp(start),
+    );
+  };
+
+  const onDraftMove = (
+    start: { x: number; y: number },
+    p: { x: number; y: number },
+    shift: boolean,
+  ) => {
+    const current = draftRef.current;
+    if (!current) return;
+    let dx = p.x - start.x;
+    let dy = p.y - start.y;
+    switch (current.type) {
+      case "arrow":
+      case "line": {
+        if (shift) [dx, dy] = snap45(dx, dy);
+        const bezier = styles[current.type].bezier;
+        setDraft({
+          ...current,
+          points: [0, 0, dx, dy],
+          control: bezier ? { x: dx / 2, y: dy / 2 } : null,
+        });
+        return;
+      }
+      case "pen":
+        setDraft({ ...current, points: [...current.points, dx, dy] });
+        return;
+      default: {
+        if (shift && current.type !== "text" && current.type !== "callout") {
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          dx = Math.sign(dx || 1) * side;
+          dy = Math.sign(dy || 1) * side;
+        }
+        setDraft({
+          ...current,
+          ...norm(start, { x: start.x + dx, y: start.y + dy }),
+        } as Shape);
       }
     }
   };
 
-  // Track the pointer on the window so drawing continues outside the canvas.
-  useEffect(() => {
-    if (!draft) return;
-    const onMove = (evt: PointerEvent) => {
-      const stage = stageRef.current;
-      const start = origin.current;
-      const current = draftRef.current;
-      if (!stage || !start || !current) return;
-      stage.setPointersPositions(evt);
-      const p = pointer();
-      let dx = p.x - start.x;
-      let dy = p.y - start.y;
-
-      switch (current.type) {
-        case "rect":
-        case "ellipse":
-        case "pixelate":
-        case "blur": {
-          if (
-            evt.shiftKey &&
-            (current.type === "rect" || current.type === "ellipse")
-          ) {
-            const side = Math.max(Math.abs(dx), Math.abs(dy));
-            dx = Math.sign(dx || 1) * side;
-            dy = Math.sign(dy || 1) * side;
-          }
-          setDraft({
-            ...current,
-            x: Math.min(start.x, start.x + dx),
-            y: Math.min(start.y, start.y + dy),
-            width: Math.abs(dx),
-            height: Math.abs(dy),
-          });
-          break;
-        }
-        case "arrow":
-        case "line":
-          if (evt.shiftKey) [dx, dy] = snap45(dx, dy);
-          setDraft({ ...current, points: [0, 0, dx, dy] });
-          break;
-        case "pen":
-          setDraft({ ...current, points: [...current.points, dx, dy] });
-          break;
-        case "highlighter":
-          setDraft({
-            ...current,
-            points: evt.shiftKey ? [0, 0, dx, 0] : [...current.points, dx, dy],
-          });
-          break;
-        case "callout": {
-          // Bubble centred on the pointer, tail pointing back at the press position.
-          const height =
-            current.fontSize * TEXT_LINE_HEIGHT + CALLOUT_PADDING * 2;
-          const x = p.x - current.width / 2;
-          const y = p.y - height / 2;
-          setDraft({
-            ...current,
-            x,
-            y,
-            tailX: start.x - x,
-            tailY: start.y - y,
-          });
-          break;
-        }
+  const onDraftUp = (start: { x: number; y: number }) => {
+    const current = draftRef.current;
+    setDraft(null);
+    if (!current) return;
+    const tiny = 4 / viewRef.current.scale;
+    let shape: Shape | null = current;
+    switch (current.type) {
+      case "arrow":
+      case "line":
+        if (Math.hypot(current.points[2], current.points[3]) < tiny)
+          shape = null;
+        break;
+      case "pen":
+        if (current.points.length < 4) shape = null;
+        break;
+      case "stamp": {
+        const size =
+          current.width < tiny ? 72 : Math.max(current.width, current.height);
+        shape =
+          current.width < tiny
+            ? {
+                ...current,
+                x: start.x - size / 2,
+                y: start.y - size / 2,
+                width: size,
+                height: size,
+              }
+            : current;
+        break;
       }
-    };
-
-    const onUp = () => {
-      const current = draftRef.current;
-      const start = origin.current;
-      setDraft(null);
-      origin.current = null;
-      if (!current || !start) return;
-
-      let shape: Shape | null = current;
-      switch (current.type) {
-        case "rect":
-        case "ellipse":
-        case "pixelate":
-        case "blur":
-          if (current.width < 3 || current.height < 3) shape = null;
-          break;
-        case "arrow":
-        case "line":
-          if (Math.hypot(current.points[2], current.points[3]) < 4)
-            shape = null;
-          break;
-        case "pen":
-        case "highlighter":
-          if (current.points.length < 4) shape = null;
-          break;
-        case "callout": {
-          // A click (or tiny drag) puts the bubble up and to the right of the point.
-          const height =
-            current.fontSize * TEXT_LINE_HEIGHT + CALLOUT_PADDING * 2;
-          const untouched = current.tailX === 0 && current.tailY === 0;
-          const drag = Math.hypot(
-            current.tailX - current.width / 2,
-            current.tailY - height / 2,
-          );
-          if (untouched || drag < px(40)) {
-            const x = start.x + px(30);
-            const y = start.y - px(90);
-            shape = {
-              ...current,
-              x,
-              y,
-              tailX: start.x - x,
-              tailY: start.y - y,
-            };
-          }
-          break;
+      case "magnify":
+        if (current.width < tiny)
+          shape = {
+            ...current,
+            x: start.x - 75,
+            y: start.y - 75,
+            width: 150,
+            height: 150,
+          };
+        break;
+      case "text": {
+        const width =
+          current.width < tiny * 4
+            ? Math.max(160, current.fontSize * 9)
+            : current.width;
+        const y =
+          current.width < tiny * 4
+            ? start.y -
+              (current.fontSize * TEXT_LINE_HEIGHT) / 2 -
+              current.padding
+            : current.y;
+        shape = fitText({ ...current, y, width });
+        break;
+      }
+      case "callout": {
+        const clicked = current.width < tiny * 4;
+        const width = clicked
+          ? Math.max(180, current.fontSize * 11)
+          : current.width;
+        const minH = measureText(current, width);
+        const height = clicked ? minH : Math.max(minH, current.height);
+        const x = clicked ? start.x + 30 : current.x;
+        const y = clicked ? start.y - height - 50 : current.y;
+        const tail = clicked
+          ? { x: start.x - x, y: start.y - y }
+          : { x: width * 0.2, y: height + Math.max(40, height * 0.6) };
+        shape = { ...current, x, y, width, height, tail };
+        break;
+      }
+      case "block": {
+        if (current.width < 3 || current.height < 3) shape = null;
+        else if (!styles.simplify.color && bg) {
+          shape = { ...current, fill: dominantColor(baseCanvas(), current) };
         }
+        break;
       }
-      if (!shape) return;
-      if (shape.type === "callout") {
-        replaceShapes([...shapes, shape]);
-        startEditing(shape, history.present);
-      } else {
-        commitShapes([...shapes, shape]);
-      }
-    };
+      default:
+        if ("width" in current && (current.width < 3 || current.height < 3))
+          shape = null;
+    }
+    if (!shape) return;
+    if (shape.type === "text" || shape.type === "callout") {
+      const before = history.present;
+      replaceShapes([...shapes, shape]);
+      startEditing(shape, before);
+    } else {
+      addShape(shape);
+      setSelectedIds([shape.id]);
+    }
+  };
 
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    // Re-subscribing on every draft change would drop events; refs carry the latest state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft !== null]);
+  // ---- selecting and moving objects ---------------------------------------------------------
 
-  // ---- selection transformer -------------------------------------------------
+  const selectShape = (id: string, additive: boolean) => {
+    if (editingRef.current) finishEditing();
+    setSelectedIds((ids) =>
+      additive
+        ? ids.includes(id)
+          ? ids.filter((x) => x !== id)
+          : [...ids, id]
+        : ids.includes(id)
+          ? ids
+          : [id],
+    );
+  };
 
+  const dragStart = useRef<Map<string, { x: number; y: number }> | null>(null);
+  const onShapeDragMove = (id: string, node: Konva.Node) => {
+    const group = selectedIds.includes(id) ? selectedIds : [id];
+    if (!dragStart.current) {
+      dragStart.current = new Map(
+        shapes
+          .filter((s) => group.includes(s.id))
+          .map((s) => [s.id, { x: s.x, y: s.y }]),
+      );
+    }
+    const origin = dragStart.current.get(id);
+    if (!origin) return;
+    const dx = node.x() - origin.x;
+    const dy = node.y() - origin.y;
+    for (const [other, pos] of dragStart.current) {
+      if (other === id) continue;
+      contentRef.current
+        ?.findOne(`#${other}`)
+        ?.position({ x: pos.x + dx, y: pos.y + dy });
+    }
+  };
+  const onShapeDragEnd = (id: string, node: Konva.Node) => {
+    const starts =
+      dragStart.current ?? new Map([[id, { x: node.x(), y: node.y() }]]);
+    dragStart.current = null;
+    const origin = starts.get(id) ?? { x: node.x(), y: node.y() };
+    const dx = node.x() - origin.x;
+    const dy = node.y() - origin.y;
+    if (!dx && !dy) return;
+    commitShapes(
+      shapes.map((s) => {
+        const pos = starts.get(s.id);
+        return pos ? { ...s, x: pos.x + dx, y: pos.y + dy } : s;
+      }),
+    );
+    if (!selectedIds.includes(id)) setSelectedIds([id]);
+  };
+
+  // Selection frame: Snagit-style square handles, a round rotate handle; lines get their own.
+  const lineSelected =
+    single && (single.type === "arrow" || single.type === "line");
   useEffect(() => {
     const tr = trRef.current;
-    const stage = stageRef.current;
-    if (!tr || !stage) return;
-    const node = selectedId ? stage.findOne(`#${selectedId}`) : undefined;
-    const type = selected?.type;
-    tr.nodes(node ? [node] : []);
+    const layer = contentRef.current;
+    if (!tr || !layer) return;
+    const nodes = lineSelected
+      ? []
+      : selectedIds
+          .map((id) => layer.findOne(`#${id}`))
+          .filter((n): n is Konva.Node => !!n);
+    tr.nodes(nodes);
+    const t = single?.type;
+    const multi = selected.length > 1;
+    tr.resizeEnabled(!multi);
     tr.rotateEnabled(
-      type !== "pixelate" && type !== "blur" && type !== "callout",
+      !multi &&
+        (t === "shape" ||
+          t === "text" ||
+          t === "stamp" ||
+          t === "image" ||
+          t === "pen"),
     );
-    tr.keepRatio(type === "text" || type === "step" || type === "image");
+    tr.keepRatio(t === "stamp" || t === "image" || t === "step");
     tr.enabledAnchors(
-      type === "callout"
-        ? ["middle-left", "middle-right"]
-        : type === "text" || type === "step" || type === "image"
-          ? ["top-left", "top-right", "bottom-left", "bottom-right"]
+      t === "step"
+        ? ["top-left", "top-right", "bottom-left", "bottom-right"]
+        : t === "text"
+          ? [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right",
+              "middle-left",
+              "middle-right",
+            ]
           : [
               "top-left",
               "top-center",
@@ -1171,7 +1570,7 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
             ],
     );
     tr.getLayer()?.batchDraw();
-  }, [selectedId, selected?.type, shapes]);
+  });
 
   const hasCropDraft = cropDraft !== null;
   useEffect(() => {
@@ -1182,7 +1581,40 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     tr.getLayer()?.batchDraw();
   }, [cropping, hasCropDraft]);
 
-  // ---- keyboard shortcuts --------------------------------------------------
+  // ---- handle drags (endpoints, curve, callout tail, corner radius, step point) ------------
+
+  const handleBase = useRef<DocState | null>(null);
+  const dragHandle =
+    (
+      id: string,
+      patchFor: (local: { x: number; y: number }, s: Shape) => ShapePatch,
+    ) =>
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      const present = history.present;
+      if (!handleBase.current) handleBase.current = present;
+      const node = contentRef.current?.findOne(`#${id}`);
+      const shape = present.shapes.find((s) => s.id === id);
+      if (!node || !shape) return;
+      const local = node
+        .getTransform()
+        .copy()
+        .invert()
+        .point(e.target.position());
+      history.replace({
+        ...present,
+        shapes: present.shapes.map((s) =>
+          s.id === id ? ({ ...s, ...patchFor(local, s) } as Shape) : s,
+        ),
+      });
+    };
+  const endHandle = () => {
+    const before = handleBase.current;
+    handleBase.current = null;
+    if (before && before !== history.present)
+      history.commit(history.present, before);
+  };
+
+  // ---- keyboard ---------------------------------------------------------------------------
 
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   const onKeyDown = (e: KeyboardEvent) => {
@@ -1190,30 +1622,43 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     if (["TEXTAREA", "INPUT", "SELECT"].includes(target.tagName)) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-
     if (mod && key === "z" && !e.shiftKey) history.undo();
     else if (mod && (key === "y" || (key === "z" && e.shiftKey)))
       history.redo();
     else if (mod && key === "c") void copy();
     else if (mod && key === "s") void saveNow();
     else if (mod && key === "v") void paste();
+    else if (mod && key === "a") setSelectedIds(shapes.map((s) => s.id));
     else if (mod && (key === "=" || key === "+")) stepZoom(1);
     else if (mod && key === "-") stepZoom(-1);
     else if (mod && key === "0") fitToWindow();
     else if (mod && key === "1") zoomTo(1 / dpr);
     else if (e.key === " ") setSpaceHeld(true);
     else if (cropping && e.key === "Enter") leaveCrop();
-    else if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
-      remove(selectedId);
-      setSelectedId(null);
+    else if (
+      (e.key === "Delete" || e.key === "Backspace") &&
+      selectedIds.length
+    )
+      removeSelected();
+    else if (e.key.startsWith("Arrow") && selectedIds.length) {
+      const step = e.shiftKey ? 10 : 1;
+      const dx =
+        e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+      const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+      commitShapes(
+        shapes.map((s) =>
+          selectedIds.includes(s.id) ? { ...s, x: s.x + dx, y: s.y + dy } : s,
+        ),
+      );
     } else if (e.key === "Escape") {
       if (cropping) leaveCrop(true);
-      else if (selectedId) setSelectedId(null);
-      else setTool("select");
+      else if (selectedIds.length) setSelectedIds([]);
     } else if (!mod && !e.altKey) {
-      const match = TOOLS.find((t) => t.key.toLowerCase() === key);
+      const match = (Object.entries(TOOL_KEYS) as [Tool, string][]).find(
+        ([, k]) => k.toLowerCase() === key,
+      );
       if (!match) return;
-      setTool(match.tool);
+      setTool(match[0]);
     } else return;
     e.preventDefault();
   };
@@ -1236,29 +1681,19 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
     };
   }, []);
 
-  // ---- render ----------------------------------------------------------------
+  // ---- render -------------------------------------------------------------------------------
 
-  const panelTarget = selected?.type ?? tool;
-  const selectedColor =
-    selected && "stroke" in selected
-      ? selected.stroke
-      : selected && "fill" in selected
-        ? selected.fill
-        : undefined;
-  const activeColor =
-    selectedColor ?? (panelTarget === "highlighter" ? highlight : color);
-  const palette = panelTarget === "highlighter" ? HIGHLIGHTER_COLORS : COLORS;
   const visibleShapes = draft ? [...shapes, draft] : shapes;
   const shown = cropping && cropDraft ? cropDraft : area;
+  const pixelTool = PIXEL_TOOLS.has(tool);
   const cursor = panning
     ? "grabbing"
     : spaceHeld && zoom
       ? "grab"
-      : tool === "select"
+      : tool === "move" || tool === "favorites"
         ? "default"
         : "crosshair";
 
-  /** Where an image area is on screen, in container pixels. */
   const toScreen = (a: Area) => ({
     left: view.x + a.x * view.scale,
     top: view.y + a.y * view.scale,
@@ -1267,323 +1702,617 @@ export default function Editor({ doc, onClose, onSaved, notify }: Props) {
   });
   const cropBox = cropping && cropDraft ? toScreen(cropDraft) : null;
   const sizing =
-    draft &&
-    (draft.type === "rect" ||
-      draft.type === "ellipse" ||
-      draft.type === "pixelate" ||
-      draft.type === "blur") &&
-    draft.width > 0
+    draft && "width" in draft && draft.type !== "text" && draft.width > 0
       ? draft
       : null;
-  const sizingBox = sizing ? toScreen(sizing) : null;
+  const sizingBox =
+    sizing && "height" in sizing ? toScreen(sizing as Area) : null;
+  const hs = 1 / view.scale;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="@container flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-zinc-200 bg-white px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mr-auto flex flex-wrap gap-0.5">
-          {TOOLS.map((t) => (
-            <ToolButton
-              key={t.tool}
-              tool={t.tool}
-              label={t.short}
-              title={`${t.label} (${t.key})`}
-              active={tool === t.tool}
-              onClick={() => setTool(t.tool)}
-            />
-          ))}
-        </div>
-
-        <div className="flex shrink-0 gap-0.5">
-          <IconButton
-            title="Undo (Ctrl+Z)"
-            disabled={!history.canUndo}
-            onClick={history.undo}
-          >
-            <UndoIcon />
-          </IconButton>
-          <IconButton
-            title="Redo (Ctrl+Y)"
-            disabled={!history.canRedo}
-            onClick={history.redo}
-          >
-            <RedoIcon />
-          </IconButton>
-          <IconButton title="Paste image (Ctrl+V)" onClick={() => void paste()}>
-            <PasteIcon />
-          </IconButton>
-        </div>
-
-        <Divider />
-
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void copy()}
-            disabled={busy}
-            className={`flex w-[88px] items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors disabled:opacity-60 ${
-              copied ? "bg-emerald-600" : "bg-brand-600 hover:bg-brand-500"
-            }`}
-            title="Copy to clipboard (Ctrl+C)"
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-          <IconButton
-            title="Save to gallery (Ctrl+S)"
-            disabled={busy}
-            onClick={() => void saveNow()}
-          >
-            <SaveIcon />
-          </IconButton>
-          <IconButton
-            title="Close (saves changes)"
-            disabled={busy}
-            onClick={() => void close()}
-          >
-            <CloseIcon />
-          </IconButton>
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-white dark:bg-zinc-900">
+      <Toolbar
+        tool={tool}
+        onTool={setTool}
+        bar={bar}
+        onBar={setBar}
+        recent={recentTool}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
+        onUndo={history.undo}
+        onRedo={history.redo}
+        onLibrary={() => void close()}
+        onCapture={() =>
+          void startCapture("interactive").catch((e) => notify(errorMessage(e)))
+        }
+        onCopy={() => void copy()}
+        onSave={() => void saveNow()}
+        busy={busy}
+        copied={copied}
+      />
 
       <div className="flex min-h-0 flex-1">
-        <div
-          ref={containerRef}
-          className="checkerboard relative flex-1 overflow-hidden"
-        >
-          {background && (
-            <>
-              <div
-                className="pointer-events-none absolute shadow-xl"
-                style={{
-                  left: view.x + area.x * view.scale,
-                  top: view.y + area.y * view.scale,
-                  width: area.width * view.scale,
-                  height: area.height * view.scale,
-                }}
-              />
-              <Stage
-                ref={stageRef}
-                width={viewport.width}
-                height={viewport.height}
-                x={view.x}
-                y={view.y}
-                scaleX={view.scale}
-                scaleY={view.scale}
-                onMouseDown={onStageMouseDown}
-                style={{ position: "absolute", inset: 0, cursor }}
-              >
-                <Layer
-                  clipX={area.x}
-                  clipY={area.y}
-                  clipWidth={area.width}
-                  clipHeight={area.height}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            ref={containerRef}
+            className="relative min-h-0 flex-1 overflow-hidden bg-[#f3f4f6] dark:bg-zinc-950"
+          >
+            {bg && (
+              <>
+                <div
+                  className="checkerboard pointer-events-none absolute shadow-[0_2px_12px_rgba(0,0,0,0.25)]"
+                  style={toScreen(area)}
+                />
+                <Stage
+                  ref={stageRef}
+                  width={viewport.width}
+                  height={viewport.height}
+                  x={view.x}
+                  y={view.y}
+                  scaleX={view.scale}
+                  scaleY={view.scale}
+                  onMouseDown={onStageMouseDown}
+                  style={{ position: "absolute", inset: 0, cursor }}
                 >
-                  <KImage
-                    image={background}
-                    name="background"
-                    listening={false}
-                  />
-                  {visibleShapes.map((shape) => (
-                    <ShapeNode
-                      key={shape.id}
-                      shape={shape}
-                      background={background}
-                      selectable={
-                        tool === "select" && !spaceHeld && shape !== draft
+                  <Layer
+                    ref={contentRef}
+                    clipX={area.x}
+                    clipY={area.y}
+                    clipWidth={area.width}
+                    clipHeight={area.height}
+                  >
+                    <KImage image={bg} name="background" listening={false} />
+                    {visibleShapes.map((shape) => (
+                      <ShapeNode
+                        key={shape.id}
+                        shape={shape}
+                        background={bg}
+                        selectable={
+                          !pixelTool && !spaceHeld && shape !== draft && !draft
+                        }
+                        editing={shape.id === editing?.id}
+                        onSelect={selectShape}
+                        onChange={update}
+                        onDragMove={onShapeDragMove}
+                        onDragEnd={onShapeDragEnd}
+                        onEdit={(id) => {
+                          const s = shapes.find((x) => x.id === id);
+                          if (s && (s.type === "text" || s.type === "callout"))
+                            startEditing(s, history.present);
+                        }}
+                      />
+                    ))}
+                  </Layer>
+
+                  {/* Editing chrome: never exported, and not clipped to the crop. */}
+                  <Layer ref={uiLayerRef}>
+                    {cropping && cropDraft && (
+                      <CropBox
+                        area={cropDraft}
+                        imageWidth={iw}
+                        imageHeight={ih}
+                        viewRef={viewRef}
+                        onChange={setCropDraft}
+                        onDone={(a) => setCropDraft(clampArea(a))}
+                      />
+                    )}
+                    {overlay && (
+                      <OverlayView
+                        overlay={overlay}
+                        scale={view.scale}
+                        iw={iw}
+                        ih={ih}
+                      />
+                    )}
+                    <Transformer
+                      ref={trRef}
+                      rotateAnchorOffset={22}
+                      anchorSize={8}
+                      anchorCornerRadius={0}
+                      anchorFill="#ffffff"
+                      anchorStroke="#2f2f2f"
+                      anchorStrokeWidth={1}
+                      borderStroke="#2f2f2f"
+                      borderStrokeWidth={1}
+                      borderDash={[4, 3]}
+                      ignoreStroke
+                      anchorStyleFunc={(anchor) => {
+                        if (anchor.hasName("rotater")) {
+                          anchor.cornerRadius(anchor.width() / 2);
+                          anchor.fill("#ffffff");
+                        }
+                      }}
+                      boundBoxFunc={(oldBox, box) =>
+                        Math.abs(box.width) < 6 || Math.abs(box.height) < 6
+                          ? oldBox
+                          : box
                       }
-                      editing={shape.id === editing?.id}
-                      onSelect={setSelectedId}
-                      onChange={update}
-                      onEdit={(id) => {
-                        const s = shapes.find((x) => x.id === id);
-                        if (s && (s.type === "text" || s.type === "callout"))
-                          startEditing(s, history.present);
+                    />
+                    {single && !editing && !draft && (
+                      <ObjectHandles
+                        shape={single}
+                        hs={hs}
+                        dragHandle={dragHandle}
+                        endHandle={endHandle}
+                      />
+                    )}
+                    <Transformer
+                      ref={cropTrRef}
+                      rotateEnabled={false}
+                      flipEnabled={false}
+                      keepRatio={false}
+                      borderEnabled={false}
+                      anchorSize={10}
+                      anchorCornerRadius={0}
+                      anchorStroke="#2f2f2f"
+                      boundBoxFunc={(oldBox, box) => {
+                        const v = viewRef.current;
+                        const left = Math.max(v.x, box.x);
+                        const top = Math.max(v.y, box.y);
+                        const right = Math.min(
+                          v.x + iw * v.scale,
+                          box.x + box.width,
+                        );
+                        const bottom = Math.min(
+                          v.y + ih * v.scale,
+                          box.y + box.height,
+                        );
+                        if (right - left < 8 || bottom - top < 8) return oldBox;
+                        return {
+                          x: left,
+                          y: top,
+                          width: right - left,
+                          height: bottom - top,
+                          rotation: 0,
+                        };
                       }}
                     />
-                  ))}
-                </Layer>
+                  </Layer>
+                </Stage>
 
-                {/* Editing chrome: never exported, and not clipped to the crop. */}
-                <Layer ref={uiLayerRef}>
-                  {cropping && cropDraft && (
-                    <CropBox
-                      area={cropDraft}
-                      imageWidth={iw}
-                      imageHeight={ih}
-                      viewRef={viewRef}
-                      onChange={setCropDraft}
-                      onDone={(a) => setCropDraft(clampArea(a))}
-                    />
-                  )}
-                  <Transformer
-                    ref={trRef}
-                    rotateAnchorOffset={24}
-                    anchorSize={9}
-                    anchorCornerRadius={2}
-                    borderStroke="#6c6cff"
-                    anchorStroke="#6c6cff"
-                    ignoreStroke
+                {editingShape && (
+                  <TextEditor
+                    shape={editingShape}
+                    view={view}
+                    onChange={(text) =>
+                      replaceShapes(
+                        history.present.shapes.map((s) =>
+                          s.id === editingShape.id
+                            ? fitText({
+                                ...(s as TextShape | CalloutShape),
+                                text,
+                              })
+                            : s,
+                        ),
+                      )
+                    }
+                    onDone={finishEditing}
                   />
-                  <Transformer
-                    ref={cropTrRef}
-                    rotateEnabled={false}
-                    flipEnabled={false}
-                    keepRatio={false}
-                    borderEnabled={false}
-                    anchorSize={10}
-                    anchorCornerRadius={2}
-                    anchorStroke="#6c6cff"
-                    boundBoxFunc={(oldBox, box) => {
-                      // Absolute (screen) coordinates: keep the box on the image.
-                      const v = viewRef.current;
-                      const left = Math.max(v.x, box.x);
-                      const top = Math.max(v.y, box.y);
-                      const right = Math.min(
-                        v.x + iw * v.scale,
-                        box.x + box.width,
-                      );
-                      const bottom = Math.min(
-                        v.y + ih * v.scale,
-                        box.y + box.height,
-                      );
-                      if (right - left < 8 || bottom - top < 8) return oldBox;
-                      return {
-                        x: left,
-                        y: top,
-                        width: right - left,
-                        height: bottom - top,
-                        rotation: 0,
-                      };
-                    }}
-                  />
-                </Layer>
-              </Stage>
+                )}
+              </>
+            )}
 
-              {editingShape && (
-                <TextEditor
-                  shape={editingShape}
-                  view={view}
-                  onChange={(text) =>
-                    replaceShapes(
-                      shapes.map((s) =>
-                        s.id === editingShape.id
-                          ? ({ ...s, text } as Shape)
-                          : s,
-                      ),
-                    )
-                  }
-                  onDone={finishEditing}
-                />
-              )}
-            </>
-          )}
+            {cropBox && (
+              <CropBar
+                box={cropBox}
+                viewport={viewport}
+                width={Math.round(shown.width)}
+                height={Math.round(shown.height)}
+                onReset={() => setCropDraft(full)}
+                onCancel={() => leaveCrop(true)}
+                onApply={() => leaveCrop()}
+              />
+            )}
 
-          {cropBox && (
-            <CropBar
-              box={cropBox}
-              viewport={viewport}
-              width={Math.round(shown.width)}
-              height={Math.round(shown.height)}
-              onReset={() => setCropDraft(full)}
-              onCancel={() => leaveCrop(true)}
-              onApply={() => leaveCrop()}
-            />
-          )}
+            {sizing && sizingBox && (
+              <div
+                className="pointer-events-none absolute rounded bg-zinc-900/85 px-1.5 py-0.5 text-[11px] text-white tabular-nums shadow"
+                style={{
+                  left: Math.min(
+                    sizingBox.left + sizingBox.width + 8,
+                    viewport.width - 90,
+                  ),
+                  top: Math.min(
+                    sizingBox.top + sizingBox.height + 8,
+                    viewport.height - 24,
+                  ),
+                }}
+              >
+                {Math.round((sizing as Area).width)} ×{" "}
+                {Math.round((sizing as Area).height)}
+              </div>
+            )}
+          </div>
 
-          {sizing && sizingBox && (
-            <div
-              className="pointer-events-none absolute rounded bg-zinc-900/85 px-1.5 py-0.5 text-[11px] text-white tabular-nums shadow"
-              style={{
-                left: Math.min(
-                  sizingBox.left + sizingBox.width + 8,
-                  viewport.width - 90,
-                ),
-                top: Math.min(
-                  sizingBox.top + sizingBox.height + 8,
-                  viewport.height - 24,
-                ),
-              }}
-            >
-              {Math.round(sizing.width)} × {Math.round(sizing.height)}
-            </div>
+          {showRecent && (
+            <RecentTray current={path} onOpen={(p) => onOpenSnip?.(p)} />
           )}
         </div>
 
-        {panelOpen && !cropping && (
-          <StylePanel
-            target={panelTarget}
-            empty={
-              panelTarget === "select" ||
-              panelTarget === "image" ||
-              panelTarget === "crop"
+        {panelOpen && (
+          <SidePanel
+            tool={panelTool}
+            styles={panelStyles}
+            onStyle={applyStyle}
+            theme={theme}
+            onTheme={setTheme}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onQuickStyle={applyQuickStyle}
+            selectedCount={selected.length}
+            onSelectAll={
+              QUICK_STYLE_TOOLS.has(panelTool) ||
+              panelTool === "stamp" ||
+              panelTool === "move"
+                ? () => selectAllOf(panelTool)
+                : undefined
             }
-            palette={palette}
-            color={activeColor}
-            size={size}
-            style={style}
-            onColor={pickColor}
-            onSize={applySize}
-            onStyle={setStyle}
-            onPreset={applyPreset}
+            onResetSteps={() => {
+              stepReset.current[styles.step.sequence] = 1;
+              notify("The next step starts again at the beginning");
+            }}
           />
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-3 py-0.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-        <div className="flex items-center gap-2">
-          <span className="tabular-nums">
-            {Math.round(shown.width)} × {Math.round(shown.height)} px
-          </span>
-          <div className="flex items-center">
-            <SmallButton title="Zoom out (Ctrl+−)" onClick={() => stepZoom(-1)}>
-              <ZoomOutIcon />
-            </SmallButton>
-            <button
-              type="button"
-              title="Actual size (Ctrl+1)"
-              onClick={() => zoomTo(1 / dpr)}
-              className="w-11 rounded py-0.5 text-center tabular-nums hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              {Math.round(view.scale * dpr * 100)}%
-            </button>
-            <SmallButton title="Zoom in (Ctrl+=)" onClick={() => stepZoom(1)}>
-              <ZoomInIcon />
-            </SmallButton>
-            <SmallButton
-              title="Fit to window (Ctrl+0)"
-              active={!zoom}
-              onClick={fitToWindow}
-            >
-              <FitIcon />
-            </SmallButton>
-          </div>
-        </div>
-        <span className="min-w-0 truncate">
-          {cropping
-            ? "Drag to choose the area · Enter: apply · Esc: cancel"
-            : "Shift: straight / square · Double-click text to edit · Del: delete · Ctrl+scroll: zoom · Space+drag: pan"}
-          {dirty ? " · Unsaved changes" : ""}
-        </span>
+      <div className="flex h-10 shrink-0 items-center gap-3 border-t border-zinc-300 bg-white px-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
         <button
           type="button"
-          title="Show or hide styles and properties"
-          aria-pressed={panelOpen}
-          onClick={togglePanel}
-          className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 [&_svg]:size-3.5 ${
-            panelOpen
-              ? "text-brand-600 dark:text-brand-500"
-              : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          aria-pressed={showRecent}
+          onClick={() => setShowRecent((v) => !v)}
+          className={`flex h-7 items-center gap-1.5 rounded border px-2.5 text-[13px] ${
+            showRecent
+              ? "border-zinc-400 bg-zinc-200 dark:border-zinc-500 dark:bg-zinc-700"
+              : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
           }`}
         >
-          <PanelIcon />
-          Properties
+          <RecentIcon /> {showRecent ? "Hide Recent" : "Show Recent"}
+        </button>
+        <div className="flex flex-1 items-center justify-center gap-3">
+          <span className="flex items-center gap-1">
+            <ZoomIcon />
+            <Dropdown
+              className="h-6 w-[72px] border-transparent"
+              value={zoom ? Math.round(view.scale * dpr * 100) : -1}
+              renderValue={() => `${Math.round(view.scale * dpr * 100)}%`}
+              onChange={(v) =>
+                v === -1 ? fitToWindow() : zoomTo(v / 100 / dpr)
+              }
+              options={[
+                { value: -1, label: "Fit in window" },
+                ...[25, 50, 75, 100, 150, 200, 300, 400].map((z) => ({
+                  value: z,
+                  label: `${z}%`,
+                })),
+              ]}
+            />
+          </span>
+          <span className="tabular-nums">
+            {Math.round(shown.width)} x {Math.round(shown.height)}px
+          </span>
+          {dirty && <span className="text-zinc-400">· Unsaved changes</span>}
+        </div>
+        <button
+          type="button"
+          title="Show or hide the Quick Styles and Tool Properties panel"
+          aria-pressed={panelOpen}
+          onClick={togglePanel}
+          className={`flex h-7 items-center gap-1.5 rounded border px-2.5 text-[13px] ${
+            panelOpen
+              ? "border-zinc-400 bg-zinc-200 dark:border-zinc-500 dark:bg-zinc-700"
+              : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          }`}
+        >
+          <GearIcon /> Properties
         </button>
       </div>
     </div>
   );
 }
 
-/** Size and actions for the crop, floating just under the crop box. */
+/** Handles specific to an object type, drawn over it (sizes are in screen pixels). */
+function ObjectHandles({
+  shape,
+  hs,
+  dragHandle,
+  endHandle,
+}: {
+  shape: Shape;
+  hs: number;
+  dragHandle: (
+    id: string,
+    patchFor: (local: { x: number; y: number }, s: Shape) => ShapePatch,
+  ) => (e: Konva.KonvaEventObject<DragEvent>) => void;
+  endHandle: () => void;
+}) {
+  // Objects are placed by position and rotation only, so their transform is easy to rebuild.
+  const t = new Konva.Transform()
+    .translate(shape.x, shape.y)
+    .rotate(((shape.rotation ?? 0) * Math.PI) / 180);
+  const at = (x: number, y: number) => t.point({ x, y });
+  const cursorOn = (e: Konva.KonvaEventObject<MouseEvent>, c: string) => {
+    const el = e.target.getStage()?.container();
+    if (el) el.style.cursor = c;
+  };
+  /** A white endpoint dot, like Snagit's line handles. */
+  const dot = (
+    key: string,
+    pos: { x: number; y: number },
+    onMove: (e: Konva.KonvaEventObject<DragEvent>) => void,
+  ) => (
+    <Circle
+      key={key}
+      x={pos.x}
+      y={pos.y}
+      radius={5.5 * hs}
+      fill="#ffffff"
+      stroke="#2f2f2f"
+      strokeWidth={1.2 * hs}
+      draggable
+      onDragMove={onMove}
+      onDragEnd={endHandle}
+      onMouseEnter={(e) => cursorOn(e, "crosshair")}
+      onMouseLeave={(e) => cursorOn(e, "")}
+    />
+  );
+  /** A yellow diamond: Snagit's handle for adjusting a shape rather than resizing it. */
+  const diamond = (
+    key: string,
+    pos: { x: number; y: number },
+    onMove: (e: Konva.KonvaEventObject<DragEvent>) => void,
+  ) => (
+    <Rect
+      key={key}
+      x={pos.x}
+      y={pos.y}
+      width={9 * hs}
+      height={9 * hs}
+      offsetX={4.5 * hs}
+      offsetY={4.5 * hs}
+      rotation={45}
+      fill="#ffd400"
+      stroke="#3b3b3b"
+      strokeWidth={1 * hs}
+      draggable
+      onDragMove={onMove}
+      onDragEnd={endHandle}
+      onMouseEnter={(e) => cursorOn(e, "pointer")}
+      onMouseLeave={(e) => cursorOn(e, "")}
+    />
+  );
+
+  switch (shape.type) {
+    case "arrow":
+    case "line": {
+      const [x0, y0, x1, y1] = shape.points;
+      const mid = shape.control ?? null;
+      return (
+        <>
+          <Line
+            points={[at(x0, y0).x, at(x0, y0).y, at(x1, y1).x, at(x1, y1).y]}
+            stroke="#2f2f2f"
+            strokeWidth={hs}
+            dash={[4 * hs, 3 * hs]}
+            listening={false}
+            visible={!!mid}
+          />
+          {dot(
+            "start",
+            at(x0, y0),
+            dragHandle(shape.id, (p, s) => {
+              const l = s as LineShape;
+              return { points: [p.x, p.y, l.points[2], l.points[3]] };
+            }),
+          )}
+          {dot(
+            "end",
+            at(x1, y1),
+            dragHandle(shape.id, (p, s) => {
+              const l = s as LineShape;
+              return { points: [l.points[0], l.points[1], p.x, p.y] };
+            }),
+          )}
+          {mid &&
+            diamond(
+              "curve",
+              at(mid.x, mid.y),
+              dragHandle(shape.id, (p) => ({ control: { x: p.x, y: p.y } })),
+            )}
+        </>
+      );
+    }
+    case "callout":
+      return shape.tail
+        ? diamond(
+            "tail",
+            at(shape.tail.x, shape.tail.y),
+            dragHandle(shape.id, (p) => ({ tail: { x: p.x, y: p.y } })),
+          )
+        : null;
+    case "shape": {
+      if (shape.kind !== "rounded") return null;
+      const r = Math.min(
+        shape.radius ?? Math.min(shape.width, shape.height) * 0.15,
+        shape.width / 2,
+        shape.height / 2,
+      );
+      return diamond(
+        "radius",
+        at(r, 0),
+        dragHandle(shape.id, (p, s) => {
+          const b = s as typeof shape;
+          return { radius: clamp(p.x, 0, Math.min(b.width, b.height) / 2) };
+        }),
+      );
+    }
+    case "step": {
+      if (shape.style !== "circlePoint" && shape.style !== "squarePoint")
+        return null;
+      const tip = stepPointer(shape.size, shape.pointAngle ?? 135)[1];
+      return diamond(
+        "point",
+        at(tip.x, tip.y),
+        dragHandle(shape.id, (p) => ({
+          pointAngle: (Math.atan2(p.y, p.x) * 180) / Math.PI,
+        })),
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+/** Previews for pixel tools and the marquee. */
+function OverlayView({
+  overlay,
+  scale,
+  iw,
+  ih,
+}: {
+  overlay: Overlay;
+  scale: number;
+  iw: number;
+  ih: number;
+}) {
+  const hs = 1 / scale;
+  const ants = {
+    stroke: "#111" as string,
+    strokeWidth: hs,
+    dash: [4 * hs, 4 * hs],
+    listening: false as boolean,
+  };
+  const antsLight = { ...ants, stroke: "#fff", dashOffset: 4 * hs };
+  switch (overlay.kind) {
+    case "marquee":
+      return (
+        <>
+          <Rect {...overlay.area} fill="rgba(108,108,255,0.12)" {...ants} />
+          <Rect {...overlay.area} {...antsLight} />
+        </>
+      );
+    case "select": {
+      const a = overlay.area;
+      if (overlay.shape === "freehand")
+        return (
+          <>
+            <Line points={overlay.points} closed {...ants} />
+            <Line points={overlay.points} closed {...antsLight} />
+          </>
+        );
+      if (overlay.shape === "ellipse") {
+        const e = {
+          x: a.x + a.width / 2,
+          y: a.y + a.height / 2,
+          radiusX: a.width / 2,
+          radiusY: a.height / 2,
+        };
+        return (
+          <>
+            <Ellipse {...e} {...ants} />
+            <Ellipse {...e} {...antsLight} />
+          </>
+        );
+      }
+      return (
+        <>
+          <Rect {...a} {...ants} />
+          <Rect {...a} {...antsLight} />
+        </>
+      );
+    }
+    case "band": {
+      const r = overlay.vertical
+        ? {
+            x: overlay.from,
+            y: 0,
+            width: overlay.to - overlay.from,
+            height: ih,
+          }
+        : {
+            x: 0,
+            y: overlay.from,
+            width: iw,
+            height: overlay.to - overlay.from,
+          };
+      return (
+        <Rect
+          {...r}
+          fill="rgba(229,25,28,0.25)"
+          stroke="#e5191c"
+          strokeWidth={hs}
+          dash={[5 * hs, 3 * hs]}
+          listening={false}
+        />
+      );
+    }
+    case "erase":
+      return (
+        <Line
+          points={overlay.points}
+          stroke="rgba(255,255,255,0.75)"
+          strokeWidth={overlay.width}
+          lineCap="round"
+          lineJoin="round"
+          shadowColor="#000"
+          shadowBlur={2}
+          listening={false}
+        />
+      );
+  }
+}
+
+/** Snagit's bottom tray: recent captures, click one to open it. */
+function RecentTray({
+  current,
+  onOpen,
+}: {
+  current: string | null;
+  onOpen: (path: string) => void;
+}) {
+  const [snips, setSnips] = useState<Snip[] | null>(null);
+  useEffect(() => {
+    api
+      .listSnips()
+      .then((list) =>
+        setSnips(
+          [...list].sort((a, b) => b.modified - a.modified).slice(0, 40),
+        ),
+      )
+      .catch(() => setSnips([]));
+  }, [current]);
+  return (
+    <div className="flex h-[92px] shrink-0 items-center gap-2 overflow-x-auto border-t border-zinc-300 bg-zinc-100 px-2 dark:border-zinc-700 dark:bg-zinc-900">
+      {snips === null ? (
+        <span className="text-xs text-zinc-500">Loading…</span>
+      ) : snips.length === 0 ? (
+        <span className="text-xs text-zinc-500">No recent captures</span>
+      ) : (
+        snips.map((s) => (
+          <button
+            key={s.path}
+            type="button"
+            title={s.name}
+            onClick={() => onOpen(s.path)}
+            className={`flex h-[74px] w-[104px] shrink-0 items-center justify-center overflow-hidden rounded border-2 bg-white dark:bg-zinc-800 ${
+              s.path === current
+                ? "border-[#2b7bd6]"
+                : "border-transparent hover:border-zinc-300"
+            }`}
+          >
+            <img
+              src={snipUrl(s)}
+              alt=""
+              className="max-h-full max-w-full object-contain"
+              draggable={false}
+            />
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Size and actions for the crop, floating under the crop box (Snagit's crop floaty). */
 function CropBar({
   box,
   viewport,
@@ -1601,13 +2330,12 @@ function CropBar({
   onCancel: () => void;
   onApply: () => void;
 }) {
-  const barWidth = 300;
+  const barWidth = 290;
   const left = clamp(
     box.left + box.width / 2 - barWidth / 2,
     8,
     Math.max(8, viewport.width - barWidth - 8),
   );
-  // Below the box when there is room, otherwise tucked inside its bottom edge.
   const below = box.top + box.height + 10;
   const top =
     below + 40 <= viewport.height
@@ -1615,17 +2343,17 @@ function CropBar({
       : Math.max(8, box.top + box.height - 48);
   return (
     <div
-      className="absolute flex items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/92 p-1 text-sm text-white shadow-xl"
+      className="absolute flex items-center gap-1 rounded-md border border-zinc-300 bg-white p-1 text-sm text-zinc-800 shadow-lg dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
       style={{ left, top, width: barWidth }}
     >
-      <span className="flex-1 px-2 text-xs text-zinc-300 tabular-nums">
+      <span className="flex-1 px-2 text-xs text-zinc-500 tabular-nums">
         {width} × {height}
       </span>
       <button
         type="button"
         title="Select the whole image"
         onClick={onReset}
-        className="rounded-md px-2 py-1 text-zinc-200 hover:bg-white/10"
+        className="rounded px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-700"
       >
         Reset
       </button>
@@ -1633,61 +2361,22 @@ function CropBar({
         type="button"
         title="Cancel (Esc)"
         onClick={onCancel}
-        className="rounded-md px-2 py-1 text-zinc-200 hover:bg-white/10"
+        className="rounded px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-700"
       >
         Cancel
       </button>
       <button
         type="button"
-        title="Apply crop (Enter)"
+        title="Crop (Enter)"
         onClick={onApply}
-        className="flex items-center gap-1 rounded-md bg-brand-600 px-2.5 py-1 font-medium hover:bg-brand-500"
+        className="rounded bg-brand-600 px-3 py-1 font-medium text-white hover:bg-brand-500"
       >
-        <CheckIcon />
-        Apply
+        Crop
       </button>
     </div>
   );
 }
 
-/** A toolbar tool: icon, with its name underneath when the window is wide enough. */
-function ToolButton({
-  tool,
-  label,
-  title,
-  active,
-  onClick,
-}: {
-  tool: Tool;
-  label: string;
-  title: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      onClick={onClick}
-      className={`relative flex h-9 min-w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 transition @[880px]:h-12 @[880px]:min-w-12 ${
-        active
-          ? "bg-brand-500/12 text-brand-600 dark:text-brand-500"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-      }`}
-    >
-      <ToolIcon tool={tool} />
-      <span className="hidden text-[10px] leading-none font-medium @[880px]:block">
-        {label}
-      </span>
-      {active && (
-        <span className="absolute inset-x-2.5 bottom-0 h-0.5 rounded-full bg-brand-500" />
-      )}
-    </button>
-  );
-}
-/** The crop box: dims everything outside it, with rule-of-thirds guides. */
 function CropBox({
   area,
   imageWidth,
@@ -1710,10 +2399,7 @@ function CropBox({
     height: node.height() * node.scaleY(),
   });
   const { x, y, width, height } = area;
-  // Covering the whole image there is nowhere to move the box, so a drag inside it draws
-  // a new one instead.
   const whole = width >= imageWidth && height >= imageHeight;
-
   return (
     <>
       <KShape
@@ -1749,7 +2435,6 @@ function CropBox({
         y={y}
         width={width}
         height={height}
-        // Transparent, but still hit-testable so the box can be dragged.
         fill="rgba(0,0,0,0)"
         stroke="#ffffff"
         strokeWidth={1.5}
@@ -1774,7 +2459,6 @@ function CropBox({
         onDragMove={(e) => onChange(fromNode(e.target))}
         onDragEnd={(e) => onDone(fromNode(e.target))}
         onTransform={(e) => {
-          // Fold the transformer's scale into the size so the stroke stays put.
           const a = fromNode(e.target);
           e.target.setAttrs({ ...a, scaleX: 1, scaleY: 1 });
           onChange(a);
@@ -1785,6 +2469,7 @@ function CropBox({
   );
 }
 
+/** A textarea laid exactly over a text box or callout while its text is typed. */
 function TextEditor({
   shape,
   view,
@@ -1798,15 +2483,17 @@ function TextEditor({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
-    // The drawing mousedown is preventDefault-ed, so nothing takes focus back afterwards.
     ref.current?.focus();
   }, []);
-
-  const scale = view.scale * (shape.scaleX ?? 1);
-  const isCallout = shape.type === "callout";
-  const pad = isCallout ? CALLOUT_PADDING : 0;
-  const color = isCallout ? contrastText(shape.fill) : shape.fill;
-
+  const s = view.scale;
+  const textH = measureText(shape, shape.width) - shape.padding * 2;
+  const room = shape.height - shape.padding * 2;
+  const offset =
+    shape.valign === "middle"
+      ? Math.max(0, (room - textH) / 2)
+      : shape.valign === "bottom"
+        ? Math.max(0, room - textH)
+        : 0;
   return (
     <textarea
       ref={ref}
@@ -1815,98 +2502,33 @@ function TextEditor({
       onBlur={onDone}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (
-          e.key === "Escape" ||
-          (e.key === "Enter" && (e.ctrlKey || (!isCallout && !e.shiftKey)))
-        ) {
+        if (e.key === "Escape" || (e.key === "Enter" && e.ctrlKey)) {
           e.preventDefault();
           onDone();
         }
       }}
       placeholder="Type…"
       spellCheck={false}
-      className="absolute resize-none overflow-hidden border-0 bg-transparent p-0 outline-1 outline-brand-500 outline-dashed placeholder:opacity-60"
+      className="absolute resize-none overflow-hidden border-0 bg-transparent p-0 outline-1 outline-[#2f2f2f] outline-dashed placeholder:opacity-50"
       style={
         {
-          left: view.x + (shape.x + pad) * view.scale,
-          top: view.y + (shape.y + pad) * view.scale,
-          width: isCallout ? (shape.width - pad * 2) * scale : undefined,
-          minWidth: isCallout ? undefined : 40,
-          fontFamily: FONT_FAMILY,
-          fontSize: shape.fontSize * scale,
-          fontWeight: isCallout ? 400 : 600,
+          left: view.x + (shape.x + shape.padding) * s,
+          top: view.y + (shape.y + shape.padding + offset) * s,
+          width: (shape.width - shape.padding * 2) * s,
+          height: Math.max(textH, shape.fontSize * TEXT_LINE_HEIGHT) * s,
+          fontFamily: shape.font,
+          fontSize: shape.fontSize * s,
+          fontWeight: shape.bold ? 700 : 400,
+          fontStyle: shape.italic ? "italic" : "normal",
+          textDecoration: shape.underline ? "underline" : "none",
+          textAlign: shape.align,
           lineHeight: TEXT_LINE_HEIGHT,
-          color,
-          caretColor: color,
-          fieldSizing: "content",
-          whiteSpace: isCallout ? "pre-wrap" : "pre",
+          color: shape.textColor,
+          caretColor: shape.textColor,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "break-word",
         } as React.CSSProperties
       }
     />
   );
-}
-
-function IconButton({
-  children,
-  active,
-  disabled,
-  title,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  disabled?: boolean;
-  title: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex size-8 items-center justify-center rounded-md transition disabled:opacity-35 ${
-        active
-          ? "bg-brand-500/15 text-brand-600 dark:text-brand-500"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SmallButton({
-  children,
-  active,
-  title,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  title: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      onClick={onClick}
-      className={`flex size-6 items-center justify-center rounded [&_svg]:size-3.5 ${
-        active
-          ? "text-brand-600 dark:text-brand-500"
-          : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Divider() {
-  return <div className="h-6 w-px bg-zinc-200 dark:bg-zinc-700" />;
 }
