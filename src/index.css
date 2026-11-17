@@ -204,3 +204,32 @@ html.transparent body {
       linear-gradient(-45deg, transparent 75%, var(--color-zinc-800) 75%);
   }
 }
+
+/* Editor side-panel sliders: a thin track with a round thumb, like Snagit's. */
+.snip-slider {
+  appearance: none;
+  background: transparent;
+}
+.snip-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-zinc-300);
+}
+.snip-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid var(--color-zinc-400);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+.snip-slider:disabled::-webkit-slider-thumb {
+  background: var(--color-zinc-100);
+}
+@media (prefers-color-scheme: dark) {
+  .snip-slider::-webkit-slider-runnable-track {
+    background: var(--color-zinc-600);
+  }
+}

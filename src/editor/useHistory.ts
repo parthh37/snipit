@@ -25,6 +25,18 @@ export function useHistory<T>(initial: T) {
     }));
   }, []);
 
+  /**
+   * Records an undo step computed from the latest present. Async edits (pixel tools) use
+   * this, so changes made while they ran aren't overwritten.
+   */
+  const commitWith = useCallback((fn: (present: T) => T) => {
+    setState((s) => ({
+      past: [...s.past, s.present].slice(-LIMIT),
+      present: fn(s.present),
+      future: [],
+    }));
+  }, []);
+
   /** Changes the present without an undo step (e.g. while typing). */
   const replace = useCallback((next: T) => {
     setState((s) => ({ ...s, present: next }));
@@ -63,6 +75,7 @@ export function useHistory<T>(initial: T) {
     canUndo: state.past.length > 0,
     canRedo: state.future.length > 0,
     commit,
+    commitWith,
     replace,
     undo,
     redo,
