@@ -38,7 +38,7 @@ import {
   shapeMask,
   toBase,
 } from "./pixelOps";
-import { stepPointer } from "./geometry";
+import { shapeBounds, stepPointer } from "./geometry";
 import {
   QUICK_STYLE_TOOLS,
   loadFavorites,
@@ -169,6 +169,16 @@ const sameArea = (a: Area | null, b: Area | null) =>
     a.y === b.y &&
     a.width === b.width &&
     a.height === b.height);
+const union = (a: Area, b: Area): Area => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    width: Math.max(a.x + a.width, b.x + b.width) - x,
+    height: Math.max(a.y + a.height, b.y + b.height) - y,
+  };
+};
 const norm = (
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -325,6 +335,11 @@ export default function Editor({
     null,
   );
   const editingRef = useRef(editing);
+  /** The objects the canvas was last fitted to; `skipFit` skips loads, undo and redo. */
+  const fitShapes = useRef<Shape[] | null>(null);
+  const skipFit = useRef(false);
+  /** An object is being dragged: it shows past the canvas edge until dropped. */
+  const [moving, setMoving] = useState(false);
   const [busy, setBusy] = useState(false);
   /** Where the next step of each sequence starts after a Reset. */
   const stepReset = useRef<Partial<Record<StepSequence, number>>>({});
@@ -392,7 +407,9 @@ export default function Editor({
   const dpr = window.devicePixelRatio;
   const cropping = tool === "crop";
   const full: Area = { x: 0, y: 0, width: iw, height: ih };
-  const area = cropping ? full : (crop ?? full);
+  /** Everything there is to crop: the image plus any canvas grown around it. */
+  const extent = crop ? union(full, crop) : full;
+  const area = cropping ? extent : (crop ?? full);
 
   const fitScale =
     iw && viewport.width
@@ -570,10 +587,11 @@ export default function Editor({
   // ---- crop ---------------------------------------------------------------------------------
 
   const clampArea = (a: Area): Area => {
-    const x0 = clamp(Math.round(a.x), 0, iw);
-    const y0 = clamp(Math.round(a.y), 0, ih);
-    const x1 = clamp(Math.round(a.x + a.width), 0, iw);
-    const y1 = clamp(Math.round(a.y + a.height), 0, ih);
+    const { x, y, width, height } = extent;
+    const x0 = clamp(Math.round(a.x), x, x + width);
+    const y0 = clamp(Math.round(a.y), y, y + height);
+    const x1 = clamp(Math.round(a.x + a.width), x, x + width);
+    const y1 = clamp(Math.round(a.y + a.height), y, y + height);
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   };
 
@@ -584,10 +602,7 @@ export default function Editor({
     let state = history.present;
     if (!cancel && cropDraft) {
       const c = clampArea(cropDraft);
-      const value =
-        c.width < 1 || c.height < 1 || (c.width === iw && c.height === ih)
-          ? null
-          : c;
+      const value = c.width < 1 || c.height < 1 || sameArea(c, full) ? null : c;
       if (!sameArea(value, crop)) {
         state = { ...state, crop: value };
         history.commit(state);
@@ -668,6 +683,7 @@ export default function Editor({
       originalRef.current = originalBytes;
       setOriginal(image);
       setPath(doc.path);
+      skipFit.current = true;
       history.reset(state);
       setSavedDoc(state);
       setSelectedIds([]);
@@ -923,8 +939,8 @@ export default function Editor({
       return;
     e.evt.preventDefault();
     const inside = (p: { x: number; y: number }) => ({
-      x: clamp(p.x, 0, iw),
-      y: clamp(p.y, 0, ih),
+      x: clamp(p.x, extent.x, extent.x + extent.width),
+      y: clamp(p.y, extent.y, extent.y + extent.height),
     });
     const start = inside(pointer());
     const previous = cropDraft;
@@ -1487,6 +1503,7 @@ export default function Editor({
   const onShapeDragMove = (id: string, node: Konva.Node) => {
     const group = selectedIds.includes(id) ? selectedIds : [id];
     if (!dragStart.current) {
+      setMoving(true);
       dragStart.current = new Map(
         shapes
           .filter((s) => group.includes(s.id))
@@ -1508,6 +1525,7 @@ export default function Editor({
     const starts =
       dragStart.current ?? new Map([[id, { x: node.x(), y: node.y() }]]);
     dragStart.current = null;
+    setMoving(false);
     const origin = starts.get(id) ?? { x: node.x(), y: node.y() };
     const dx = node.x() - origin.x;
     const dy = node.y() - origin.y;
@@ -1614,6 +1632,56 @@ export default function Editor({
       history.commit(history.present, before);
   };
 
+  // ---- canvas auto-expand -----------------------------------------------------------------
+
+  // Like Snagit's "Automatically expand the canvas to fit objects": an object added, moved
+  // or resized past the canvas edge grows the canvas (transparent) to fit it. Only objects
+  // that just changed count, so a crop that cuts through an older object stays put.
+  // The growth rides on the edit's own undo step (it replaces the present).
+  const undo = () => {
+    if (history.canUndo) skipFit.current = true;
+    history.undo();
+  };
+  const redo = () => {
+    if (history.canRedo) skipFit.current = true;
+    history.redo();
+  };
+  useLayoutEffect(() => {
+    const prev = fitShapes.current;
+    if (skipFit.current || prev === null) {
+      skipFit.current = false;
+      fitShapes.current = shapes;
+      return;
+    }
+    // Wait until a handle drag or text edit is committed, then compare with before it.
+    if (handleBase.current || editingRef.current || cropping) return;
+    fitShapes.current = shapes;
+    if (shapes === prev) return;
+    if (!iw || !ih) return;
+    const before = new Set(prev);
+    let need: Area | null = null;
+    for (const s of shapes) {
+      if (before.has(s)) continue;
+      const r = shapeBounds(s);
+      if (!r.width && !r.height) continue;
+      need = need ? union(need, r) : r;
+    }
+    if (!need) return;
+    const current = crop ?? full;
+    const grown = union(current, {
+      x: Math.floor(need.x),
+      y: Math.floor(need.y),
+      width: Math.ceil(need.x + need.width) - Math.floor(need.x),
+      height: Math.ceil(need.y + need.height) - Math.floor(need.y),
+    });
+    if (sameArea(grown, current)) return;
+    history.replace({
+      ...history.present,
+      crop: sameArea(grown, full) ? null : grown,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the document changes
+  }, [history.present]);
+
   // ---- keyboard ---------------------------------------------------------------------------
 
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -1622,9 +1690,8 @@ export default function Editor({
     if (["TEXTAREA", "INPUT", "SELECT"].includes(target.tagName)) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    if (mod && key === "z" && !e.shiftKey) history.undo();
-    else if (mod && (key === "y" || (key === "z" && e.shiftKey)))
-      history.redo();
+    if (mod && key === "z" && !e.shiftKey) undo();
+    else if (mod && (key === "y" || (key === "z" && e.shiftKey))) redo();
     else if (mod && key === "c") void copy();
     else if (mod && key === "s") void saveNow();
     else if (mod && key === "v") void paste();
@@ -1708,6 +1775,9 @@ export default function Editor({
   const sizingBox =
     sizing && "height" in sizing ? toScreen(sizing as Area) : null;
   const hs = 1 / view.scale;
+  // While an object is dragged or drawn it shows past the canvas edge; dropping it there
+  // grows the canvas.
+  const unclipped = (moving || !!draft) && !cropping;
 
   return (
     <div className="flex h-full flex-col bg-white dark:bg-zinc-900">
@@ -1719,8 +1789,8 @@ export default function Editor({
         recent={recentTool}
         canUndo={history.canUndo}
         canRedo={history.canRedo}
-        onUndo={history.undo}
-        onRedo={history.redo}
+        onUndo={undo}
+        onRedo={redo}
         onLibrary={() => void close()}
         onCapture={() =>
           void startCapture("interactive").catch((e) => notify(errorMessage(e)))
@@ -1756,10 +1826,10 @@ export default function Editor({
                 >
                   <Layer
                     ref={contentRef}
-                    clipX={area.x}
-                    clipY={area.y}
-                    clipWidth={area.width}
-                    clipHeight={area.height}
+                    clipX={unclipped ? undefined : area.x}
+                    clipY={unclipped ? undefined : area.y}
+                    clipWidth={unclipped ? undefined : area.width}
+                    clipHeight={unclipped ? undefined : area.height}
                   >
                     <KImage image={bg} name="background" listening={false} />
                     {visibleShapes.map((shape) => (
@@ -1789,8 +1859,7 @@ export default function Editor({
                     {cropping && cropDraft && (
                       <CropBox
                         area={cropDraft}
-                        imageWidth={iw}
-                        imageHeight={ih}
+                        bounds={extent}
                         viewRef={viewRef}
                         onChange={setCropDraft}
                         onDone={(a) => setCropDraft(clampArea(a))}
@@ -1847,14 +1916,14 @@ export default function Editor({
                       anchorStroke="#2f2f2f"
                       boundBoxFunc={(oldBox, box) => {
                         const v = viewRef.current;
-                        const left = Math.max(v.x, box.x);
-                        const top = Math.max(v.y, box.y);
+                        const left = Math.max(v.x + extent.x * v.scale, box.x);
+                        const top = Math.max(v.y + extent.y * v.scale, box.y);
                         const right = Math.min(
-                          v.x + iw * v.scale,
+                          v.x + (extent.x + extent.width) * v.scale,
                           box.x + box.width,
                         );
                         const bottom = Math.min(
-                          v.y + ih * v.scale,
+                          v.y + (extent.y + extent.height) * v.scale,
                           box.y + box.height,
                         );
                         if (right - left < 8 || bottom - top < 8) return oldBox;
@@ -2379,15 +2448,14 @@ function CropBar({
 
 function CropBox({
   area,
-  imageWidth,
-  imageHeight,
+  bounds,
   viewRef,
   onChange,
   onDone,
 }: {
   area: Area;
-  imageWidth: number;
-  imageHeight: number;
+  /** The image plus any grown canvas: what the crop can cover. */
+  bounds: Area;
   viewRef: React.RefObject<View>;
   onChange: (area: Area) => void;
   onDone: (area: Area) => void;
@@ -2399,7 +2467,7 @@ function CropBox({
     height: node.height() * node.scaleY(),
   });
   const { x, y, width, height } = area;
-  const whole = width >= imageWidth && height >= imageHeight;
+  const whole = width >= bounds.width && height >= bounds.height;
   return (
     <>
       <KShape
@@ -2408,7 +2476,7 @@ function CropBox({
         fillRule="evenodd"
         sceneFunc={(ctx, node) => {
           ctx.beginPath();
-          ctx.rect(0, 0, imageWidth, imageHeight);
+          ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
           ctx.rect(x, y, width, height);
           ctx.fillStrokeShape(node);
         }}
@@ -2444,8 +2512,16 @@ function CropBox({
         dragBoundFunc={(pos) => {
           const v = viewRef.current;
           return {
-            x: clamp(pos.x, v.x, v.x + (imageWidth - width) * v.scale),
-            y: clamp(pos.y, v.y, v.y + (imageHeight - height) * v.scale),
+            x: clamp(
+              pos.x,
+              v.x + bounds.x * v.scale,
+              v.x + (bounds.x + bounds.width - width) * v.scale,
+            ),
+            y: clamp(
+              pos.y,
+              v.y + bounds.y * v.scale,
+              v.y + (bounds.y + bounds.height - height) * v.scale,
+            ),
           };
         }}
         onMouseEnter={(e) => {
