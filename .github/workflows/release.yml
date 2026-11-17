@@ -31,6 +31,19 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
+      # Without the updater key there is no latest.json, and every installed copy's update
+      # check fails with "Could not fetch a valid release JSON". Stop before anything is
+      # tagged or published. See docs/RELEASING.md to add the key.
+      - name: Check updater signing key
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$PASSWORD" ]; then
+            echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets first, or the release has no latest.json and in-app updates fail. See docs/RELEASING.md."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -111,19 +124,6 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
 
-      # Without the updater key the installers are still published, but installed copies
-      # won't be offered this version as an update. See docs/RELEASING.md to add the key.
-      - name: Check updater signing key
-        id: signing
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if [ -n "$KEY" ]; then
-            echo "args=--config src-tauri/tauri.release.conf.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has no auto-update (latest.json). See docs/RELEASING.md."
-          fi
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -131,8 +131,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.id }}
-          # With the key: also produces the .sig files and latest.json the in-app updater reads.
-          args: ${{ steps.signing.outputs.args }}
+          # Also produces the .sig files and latest.json the in-app updater reads.
+          args: --config src-tauri/tauri.release.conf.json
           # Update through the NSIS installer (per-user, no admin prompt), not the MSI.
           updaterJsonPreferNsis: true
 

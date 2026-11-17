@@ -35,10 +35,11 @@ The workflow then:
    downloads the newest installer (the README links to it).
 5. Publishes the release. Only now do installed apps see it.
 
-If the `TAURI_SIGNING_PRIVATE_KEY` secret is missing, the release still goes out with both
-installers but without `latest.json`, and the run shows a warning: people can install it,
-but installed copies aren't offered it as an update. Add the key (below) before relying on
-auto-update.
+If the `TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret is
+missing, the run fails before it bumps, tags or publishes anything. A release without
+`latest.json` would make every installed copy's update check fail with "Could not fetch a
+valid release JSON from the remote" (v0.2.0 through v1.1.0 shipped that way). Add the key
+(below) first.
 
 ## Which installer
 
