@@ -11,6 +11,7 @@ import {
   widgetEdge,
   openSettings,
   quitApp,
+  widgetCursorInside,
   widgetDragEnd,
   widgetDragMove,
   widgetDragStart,
@@ -22,6 +23,8 @@ import {
 const COLLAPSE_DELAY = 450;
 /** Short pause before opening, so sweeping past the tab doesn't pop it open. */
 const EXPAND_DELAY = 120;
+/** How often the open panel checks the real cursor, in case it never heard it leave. */
+const CURSOR_POLL = 150;
 /** Where the chosen capture mode is remembered between launches. */
 const MODE_KEY = "snipit.widget.mode";
 
@@ -153,6 +156,31 @@ export default function Widget() {
       .then((view) => setShortcuts(view.settings.shortcuts))
       .catch(() => {});
   }, [open]);
+
+  // The window never takes focus, so it doesn't always hear the pointer leave: a drag that
+  // snaps the panel onto a side edge can drop it away from the cursor, and the leave was
+  // ignored mid-drag. So while open, also watch the real cursor and fold up once it has
+  // been off the panel for the usual delay.
+  useEffect(() => {
+    if (!open || dragging) return;
+    let outsideSince: number | null = null;
+    let busy = false;
+    const id = window.setInterval(() => {
+      if (busy || draggingRef.current) return;
+      busy = true;
+      widgetCursorInside()
+        .catch(() => true)
+        .then((inside) => {
+          if (inside) outsideSince = null;
+          else if (outsideSince === null) outsideSince = Date.now();
+          else if (Date.now() - outsideSince >= COLLAPSE_DELAY) collapse();
+        })
+        .finally(() => {
+          busy = false;
+        });
+    }, CURSOR_POLL);
+    return () => window.clearInterval(id);
+  }, [open, dragging, collapse]);
 
   const onEnter = () => {
     window.clearTimeout(timer.current);

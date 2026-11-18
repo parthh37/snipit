@@ -6,6 +6,7 @@ import type {
   Dash,
   LineShape,
   ShadowDir,
+  Shape,
 } from "./types";
 
 export interface Pt {
@@ -478,4 +479,158 @@ export function stepPointer(size: number, angleDeg: number): Pt[] {
     tip,
     { x: Math.cos(a + spread) * r, y: Math.sin(a + spread) * r },
   ];
+}
+
+/** Collects every point a path visits (control points too), for a generous bounding box. */
+class BoundsRecorder {
+  x0 = Infinity;
+  y0 = Infinity;
+  x1 = -Infinity;
+  y1 = -Infinity;
+  add(x: number, y: number, r = 0) {
+    this.x0 = Math.min(this.x0, x - r);
+    this.y0 = Math.min(this.y0, y - r);
+    this.x1 = Math.max(this.x1, x + r);
+    this.y1 = Math.max(this.y1, y + r);
+  }
+  moveTo(x: number, y: number) {
+    this.add(x, y);
+  }
+  lineTo(x: number, y: number) {
+    this.add(x, y);
+  }
+  quadraticCurveTo(cx: number, cy: number, x: number, y: number) {
+    this.add(cx, cy);
+    this.add(x, y);
+  }
+  bezierCurveTo(
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    x: number,
+    y: number,
+  ) {
+    this.add(ax, ay);
+    this.add(bx, by);
+    this.add(x, y);
+  }
+  arcTo(ax: number, ay: number, bx: number, by: number) {
+    this.add(ax, ay);
+    this.add(bx, by);
+  }
+  arc(x: number, y: number, r: number) {
+    this.add(x, y, r);
+  }
+  ellipse(x: number, y: number, rx: number, ry: number) {
+    this.add(x - rx, y - ry);
+    this.add(x + rx, y + ry);
+  }
+  rect(x: number, y: number, w: number, h: number) {
+    this.add(x, y);
+    this.add(x + w, y + h);
+  }
+  closePath() {}
+}
+
+/** Records a line and its end caps, as `drawStroke` draws them. */
+function recordStroke(
+  rec: BoundsRecorder,
+  path: Pt[],
+  width: number,
+  caps: [Cap, number, Cap, number],
+) {
+  const [startCap, startSize, endCap, endSize] = caps;
+  for (const p of path) rec.add(p.x, p.y, width / 2);
+  if (path.length < 2) return;
+  const ctx = rec as unknown as Path2D;
+  capPath(ctx, startCap, path[0], endDirection(path, true), width, startSize);
+  capPath(
+    ctx,
+    endCap,
+    path[path.length - 1],
+    endDirection(path, false),
+    width,
+    endSize,
+  );
+}
+
+/**
+ * Where an object draws, in image pixels (shadows aside): its outline, stroke, arrowheads,
+ * callout tail and step point, turned by its rotation.
+ */
+export function shapeBounds(shape: Shape): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const rec = new BoundsRecorder();
+  let pad = 0;
+  switch (shape.type) {
+    case "arrow":
+    case "line":
+      recordStroke(rec, linePath(shape), shape.strokeWidth, [
+        shape.startCap,
+        shape.startSize,
+        shape.endCap,
+        shape.endSize,
+      ]);
+      break;
+    case "pen":
+      for (let i = 0; i + 1 < shape.points.length; i += 2)
+        rec.add(shape.points[i], shape.points[i + 1]);
+      pad = shape.strokeWidth;
+      break;
+    case "step": {
+      const r = shape.size / 2;
+      rec.add(0, 0, r);
+      if (shape.style === "circlePoint" || shape.style === "squarePoint")
+        for (const p of stepPointer(shape.size, shape.pointAngle ?? 135))
+          rec.add(p.x, p.y);
+      break;
+    }
+    case "callout": {
+      const pointer = POINTER_BODIES.has(shape.body);
+      calloutPath(rec as unknown as Path2D, {
+        ...shape,
+        tail: pointer ? shape.tail : null,
+      });
+      pad = shape.outline !== null ? shape.strokeWidth / 2 : 0;
+      if (!pointer && shape.tail)
+        recordStroke(
+          rec,
+          [calloutAnchor(shape), shape.tail],
+          shape.arrowWidth,
+          ["none", 3, shape.arrowCap, 3],
+        );
+      break;
+    }
+    default:
+      rec.rect(0, 0, shape.width, shape.height);
+      if (shape.type === "shape" && shape.outline !== null)
+        pad = shape.strokeWidth / 2;
+      else if (shape.type === "text" && shape.outline !== null)
+        pad = shape.outlineWidth;
+      else if (shape.type === "magnify") pad = shape.strokeWidth / 2;
+  }
+  if (!Number.isFinite(rec.x0))
+    return { x: shape.x, y: shape.y, width: 0, height: 0 };
+  const a = ((shape.rotation ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const out = new BoundsRecorder();
+  for (const [x, y] of [
+    [rec.x0 - pad, rec.y0 - pad],
+    [rec.x1 + pad, rec.y0 - pad],
+    [rec.x1 + pad, rec.y1 + pad],
+    [rec.x0 - pad, rec.y1 + pad],
+  ])
+    out.add(shape.x + x * cos - y * sin, shape.y + x * sin + y * cos);
+  return {
+    x: out.x0,
+    y: out.y0,
+    width: out.x1 - out.x0,
+    height: out.y1 - out.y0,
+  };
 }
