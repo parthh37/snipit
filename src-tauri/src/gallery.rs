@@ -299,6 +299,18 @@ fn edit_target(path: &Path) -> PathBuf {
     }
 }
 
+/// Where a save of `source` goes. A preset adding its effects to a capture it just took asks to
+/// `replace` it, so the gallery doesn't show the bare capture as well. That is only allowed when
+/// the save brings a project (which keeps the original pixels) and `source` has none yet, so an
+/// original is still never lost; otherwise it is an ordinary [`edit_target`].
+fn save_target(source: &Path, replace: bool, has_project: bool) -> PathBuf {
+    if replace && has_project && !project_path(source).exists() {
+        source.to_path_buf()
+    } else {
+        edit_target(source)
+    }
+}
+
 // The commands below read, decode or write whole images, so they are `async` to keep that work
 // off the main thread (synchronous commands run on it and would freeze every window).
 
@@ -363,9 +375,12 @@ pub async fn save_snip(
     let path = match target {
         Some(path) => {
             let source = checked(&app, &path)?;
-            let path = edit_target(&source);
+            let replace = headers.contains_key("x-snip-replace");
+            let path = save_target(&source, replace, !project.is_empty());
             fs::write(&path, png).map_err(|e| e.to_string())?;
-            library::inherit(&app, &source, &path);
+            if path != source {
+                library::inherit(&app, &source, &path);
+            }
             path
         }
         None => save_new(
@@ -594,6 +609,24 @@ mod tests {
             edit_target(&original).file_name().unwrap(),
             "shot_edited_2.png"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn presets_replace_a_capture_only_while_its_original_is_kept() {
+        let dir = std::env::temp_dir().join(format!("snipit-replace-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let capture = dir.join("shot.png");
+        fs::write(&capture, b"").unwrap();
+
+        // A new capture with a project to hold its pixels: replaced in place.
+        assert_eq!(save_target(&capture, true, true), capture);
+        // Without a project the original would be gone, so it's an ordinary edit.
+        assert_eq!(save_target(&capture, true, false), edit_target(&capture));
+        assert_eq!(save_target(&capture, false, true), edit_target(&capture));
+        // Once the capture has a project, its original lives there and must not be replaced.
+        fs::write(project_path(&capture), b"").unwrap();
+        assert_eq!(save_target(&capture, true, true), edit_target(&capture));
         fs::remove_dir_all(&dir).unwrap();
     }
 
