@@ -92,3 +92,53 @@ pub fn visible_windows() -> Vec<TopWindow> {
 pub fn visible_windows() -> Vec<TopWindow> {
     Vec::new()
 }
+
+/// The program (executable name without `.exe`) and title of a window, for naming and
+/// searching snips.
+#[cfg(windows)]
+pub fn describe(handle: isize) -> (Option<String>, Option<String>) {
+    use windows::Win32::Foundation::{CloseHandle, HWND};
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, GetWindowThreadProcessId};
+    use windows::core::PWSTR;
+
+    let hwnd = HWND(handle as *mut _);
+    let mut title = [0u16; 256];
+    let len = unsafe { GetWindowTextW(hwnd, &mut title) } as usize;
+    let title = String::from_utf16_lossy(&title[..len]).trim().to_owned();
+
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let app = (pid != 0)
+        .then(|| unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok())
+        .flatten()
+        .and_then(|process| {
+            let mut buf = [0u16; 1024];
+            let mut size = buf.len() as u32;
+            let ok = unsafe {
+                QueryFullProcessImageNameW(
+                    process,
+                    PROCESS_NAME_WIN32,
+                    PWSTR(buf.as_mut_ptr()),
+                    &mut size,
+                )
+            };
+            unsafe {
+                let _ = CloseHandle(process);
+            }
+            ok.ok()?;
+            let path = String::from_utf16_lossy(&buf[..size as usize]);
+            std::path::Path::new(&path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+        });
+    (app, (!title.is_empty()).then_some(title))
+}
+
+#[cfg(not(windows))]
+pub fn describe(_handle: isize) -> (Option<String>, Option<String>) {
+    (None, None)
+}

@@ -183,7 +183,29 @@ const toolIcons: Record<Tool, ReactNode> = {
       <path d="M7.5 10h5M10 7.5v5" />
     </>
   ),
+  spotlight: (
+    <>
+      <path d="M3 3h18v18H3z" strokeOpacity={0.45} />
+      <circle cx="12" cy="12" r="5" />
+    </>
+  ),
 };
+
+/** One side of a sheet, torn: for the Effects panel's torn-edge buttons. */
+export function TornIcon({
+  side,
+}: {
+  side: "top" | "right" | "bottom" | "left";
+}) {
+  const rotate = { top: 180, right: 270, bottom: 0, left: 90 }[side];
+  return (
+    <Svg size={16}>
+      <g transform={`rotate(${rotate} 12 12)`}>
+        <path d="M5 4h14v11l-2.3 2-2.4-2-2.3 2-2.3-2-2.4 2L5 15z" />
+      </g>
+    </Svg>
+  );
+}
 
 export function ToolIcon({ tool, size = 22 }: { tool: Tool; size?: number }) {
   return <Svg size={size}>{toolIcons[tool]}</Svg>;

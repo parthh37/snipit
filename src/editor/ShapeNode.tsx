@@ -39,6 +39,7 @@ import {
   type ShadowDir,
   type Shape,
   type ShapePatch,
+  type SpotlightShape,
   type StepShape,
   type TextShape,
   type TextStyle,
@@ -232,6 +233,11 @@ function ShapeBody({
       );
     case "magnify":
       return <MagnifyBody shape={shape} background={background} />;
+    case "spotlight":
+      // Invisible but hit-testable: the dimming around it is drawn by `SpotlightDim`.
+      return (
+        <Rect width={shape.width} height={shape.height} fill="rgba(0,0,0,0)" />
+      );
     case "block":
       return (
         <Rect
@@ -833,5 +839,62 @@ function MagnifyBody({
         }}
       />
     </>
+  );
+}
+
+// ---- spotlight -------------------------------------------------------------------------------
+
+/**
+ * Dims the whole image except the spotlights, at the stacking position of the first one. The
+ * holes follow the spotlights' live positions, so they track drags and resizes.
+ */
+export function SpotlightDim({
+  spotlights,
+  width,
+  height,
+}: {
+  spotlights: SpotlightShape[];
+  width: number;
+  height: number;
+}) {
+  const scratch = useRef<HTMLCanvasElement>(null);
+  const dim = Math.max(...spotlights.map((s) => s.dim)) / 100;
+  return (
+    <KShape
+      listening={false}
+      sceneFunc={(ctx, node) => {
+        const canvas = (scratch.current ??= document.createElement("canvas"));
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        const o = canvas.getContext("2d");
+        if (!o) return;
+        o.globalCompositeOperation = "source-over";
+        o.clearRect(0, 0, width, height);
+        o.fillStyle = `rgba(0, 0, 0, ${dim})`;
+        o.fillRect(0, 0, width, height);
+        o.globalCompositeOperation = "destination-out";
+        o.fillStyle = "#000";
+        const layer = node.getLayer();
+        for (const s of spotlights) {
+          const live = layer?.findOne(`#${s.id}`);
+          const x = live?.x() ?? s.x;
+          const y = live?.y() ?? s.y;
+          const w = s.width * (live?.scaleX() ?? 1);
+          const h = s.height * (live?.scaleY() ?? 1);
+          o.beginPath();
+          o.roundRect(
+            Math.min(x, x + w),
+            Math.min(y, y + h),
+            Math.abs(w),
+            Math.abs(h),
+            Math.min(12, Math.abs(w) / 6, Math.abs(h) / 6),
+          );
+          o.fill();
+        }
+        ctx._context.drawImage(canvas, 0, 0);
+      }}
+    />
   );
 }

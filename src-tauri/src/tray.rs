@@ -20,6 +20,7 @@ const MENU_CAPTURE: &str = "capture";
 const MENU_CAPTURE_FULLSCREEN: &str = "capture_fullscreen";
 const MENU_CAPTURE_SCROLLING: &str = "capture_scrolling";
 const MENU_ANNOTATE_CLIPBOARD: &str = "annotate_clipboard";
+const MENU_REPEAT: &str = "repeat";
 const MENU_OPEN_FOLDER: &str = "open_folder";
 const MENU_WIDGET: &str = "widget";
 const MENU_PAUSE: &str = "pause";
@@ -28,6 +29,8 @@ const MENU_OPEN: &str = "open";
 const MENU_SETTINGS: &str = "settings";
 const MENU_CHECK_UPDATES: &str = "check-updates";
 const MENU_QUIT: &str = "quit";
+/// Preset items are `preset:<preset id>`.
+const MENU_PRESET_PREFIX: &str = "preset:";
 /// Recent capture items are `recent:<path of the snip>`.
 const MENU_RECENT_PREFIX: &str = "recent:";
 const RECENT_COUNT: usize = 6;
@@ -47,6 +50,8 @@ pub struct Tray {
     capture_fullscreen: MenuItem<Wry>,
     capture_scrolling: MenuItem<Wry>,
     annotate_clipboard: MenuItem<Wry>,
+    repeat: MenuItem<Wry>,
+    presets: Submenu<Wry>,
     recent: Submenu<Wry>,
     /// Held while the recent submenu is rebuilt so two rebuilds don't interleave. Only taken
     /// on worker threads, since menu changes wait for the main thread.
@@ -68,6 +73,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let capture_fullscreen = item(MENU_CAPTURE_FULLSCREEN, "Capture full screen")?;
     let capture_scrolling = item(MENU_CAPTURE_SCROLLING, SCROLLING_LABEL)?;
     let annotate_clipboard = item(MENU_ANNOTATE_CLIPBOARD, "Annotate clipboard image")?;
+    let repeat = item(MENU_REPEAT, "Repeat last capture")?;
+    let presets = Submenu::new(app, "Capture presets", true)?;
     let recent = Submenu::new(app, "Recent captures", true)?;
     let open_folder = item(MENU_OPEN_FOLDER, "Open captures folder")?;
     let show_widget = CheckMenuItem::with_id(
@@ -94,6 +101,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             &capture_fullscreen,
             &capture_scrolling,
             &annotate_clipboard,
+            &repeat,
+            &presets,
             &PredefinedMenuItem::separator(app)?,
             &recent,
             &open_folder,
@@ -140,6 +149,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         capture_fullscreen,
         capture_scrolling,
         annotate_clipboard,
+        repeat,
+        presets,
         recent,
         recent_rebuild: Mutex::default(),
         pause,
@@ -148,6 +159,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     });
     refresh(app);
     refresh_recent(app);
+    refresh_presets(app);
 
     // New captures and clipboard snips; editor saves and deletes call `refresh_recent` directly.
     let handle = app.clone();
@@ -163,6 +175,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         MENU_CAPTURE_FULLSCREEN => capture::start(app, CaptureMode::Fullscreen, true),
         MENU_CAPTURE_SCROLLING => capture::start(app, CaptureMode::Scrolling, true),
         MENU_ANNOTATE_CLIPBOARD => capture::annotate_clipboard(app),
+        MENU_REPEAT => capture::repeat(app, true),
         MENU_OPEN_FOLDER => {
             if let Err(err) = gallery::open_gallery_folder(app.clone()) {
                 eprintln!("Couldn't open the captures folder: {err}");
@@ -200,6 +213,8 @@ fn on_menu(app: &AppHandle, id: &str) {
         _ => {
             if let Some(path) = id.strip_prefix(MENU_RECENT_PREFIX) {
                 capture::open_editor(app, PathBuf::from(path));
+            } else if let Some(preset) = id.strip_prefix(MENU_PRESET_PREFIX) {
+                capture::start_preset(app, preset, true);
             }
         }
     }
@@ -247,6 +262,11 @@ pub fn refresh(app: &AppHandle) {
         "Annotate clipboard image",
         ShortcutAction::AnnotateClipboard,
     ));
+    let _ = tray.repeat.set_text(with_key(
+        "Repeat last capture",
+        ShortcutAction::RepeatLastCapture,
+    ));
+    let _ = tray.repeat.set_enabled(settings.last_capture.is_some());
 
     let state = if paused {
         "shortcuts paused"
@@ -336,6 +356,60 @@ pub fn refresh_recent(app: &AppHandle) {
             eprintln!("Couldn't update the recent captures menu: {err}");
         }
     });
+}
+
+/// Rebuilds the "Capture presets" submenu from Settings.
+pub fn refresh_presets(app: &AppHandle) {
+    let Some(tray) = tray(app) else { return };
+    let settings = settings::get(app);
+    let result = (|| -> tauri::Result<()> {
+        while tray.presets.remove_at(0)?.is_some() {}
+        if settings.presets.is_empty() {
+            tray.presets.append(&MenuItem::new(
+                app,
+                "No presets yet (add them on Snipit's Capture page)",
+                false,
+                None::<&str>,
+            )?)?;
+        }
+        for preset in &settings.presets {
+            let name = preset.name.replace('&', "&&");
+            let text = match &preset.shortcut {
+                Some(key) if !shortcuts::is_paused(app) => {
+                    format!("{name}\t{}", display_accelerator(key))
+                }
+                _ => name,
+            };
+            let id = format!("{MENU_PRESET_PREFIX}{}", preset.id);
+            tray.presets
+                .append(&MenuItem::with_id(app, id, text, true, None::<&str>)?)?;
+        }
+        Ok(())
+    })();
+    if let Err(err) = result {
+        eprintln!("Couldn't update the presets menu: {err}");
+    }
+}
+
+/// Says where a capture went when nothing else shows it (it was only saved).
+pub fn notify_saved(app: &AppHandle, path: &std::path::Path) {
+    let folder = path
+        .parent()
+        .map(|d| d.display().to_string())
+        .unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Err(err) = app
+        .notification()
+        .builder()
+        .title("Capture saved")
+        .body(format!("{name} is in {folder}"))
+        .show()
+    {
+        eprintln!("Couldn't show the saved notification: {err}");
+    }
 }
 
 /// `Today 15:04`, `Yesterday 09:30` or `3 Nov 18:12`, plus "(edited)" for edited copies.

@@ -1,6 +1,9 @@
 mod capture;
 mod clipboard;
+mod folder_picker;
 mod gallery;
+mod library;
+mod presets;
 mod settings;
 mod shortcuts;
 mod tray;
@@ -26,6 +29,10 @@ fn handle_args(app: &AppHandle, args: &[String]) -> bool {
         "--capture-scrolling" => Some(CaptureMode::Scrolling),
         _ => None,
     });
+    if args.iter().any(|a| a == "--capture-repeat") {
+        capture::repeat(app, false);
+        return true;
+    }
     if let Some(mode) = mode {
         capture::start(app, mode, false);
     }
@@ -56,13 +63,18 @@ pub fn run() {
         .manage(capture::CaptureState::default())
         .manage(capture::overlays::OverlayPool::default())
         .manage(capture::scroll::ScrollState::default())
+        .manage(capture::countdown::CountdownState::default())
+        .manage(library::LibraryState::default())
         .manage(shortcuts::ShortcutErrors::default())
+        .manage(shortcuts::PresetShortcutErrors::default())
         .manage(shortcuts::ShortcutsPaused::default())
         .manage(widget::WidgetState::default())
         .manage(updater::UpdaterState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
+            settings::apply_theme(handle, settings::get(handle).theme);
+            gallery::allow_assets(handle);
             shortcuts::register_all(handle);
             shortcuts::init_autostart(handle);
             // After the two above, so the menu starts out with their state.
@@ -80,6 +92,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             capture::start_capture,
+            capture::repeat_last_capture,
+            capture::run_preset,
             capture::annotate_clipboard_cmd,
             capture::overlay_info,
             capture::overlay_frame,
@@ -94,7 +108,16 @@ pub fn run() {
             gallery::delete_snip,
             gallery::reveal_snip,
             gallery::open_gallery_folder,
+            gallery::set_snip_tags,
+            gallery::choose_output_folder,
+            gallery::reset_output_folder,
+            gallery::set_filename_template,
+            gallery::preview_filename,
+            presets::save_preset,
+            presets::delete_preset,
             settings::set_after_capture,
+            settings::set_theme,
+            settings::set_capture_options,
             shortcuts::get_settings,
             shortcuts::set_shortcut,
             shortcuts::pause_shortcuts,

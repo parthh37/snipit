@@ -1,7 +1,9 @@
 /**
  * The editor's document model. Tools and their options follow Snagit's editor: the same
- * twenty tools, and per tool the properties Snagit's side panel offers.
+ * twenty tools (plus Spotlight), and per tool the properties Snagit's side panel offers.
  */
+
+import type { Effects } from "./effects";
 
 export type Tool =
   | "favorites"
@@ -23,7 +25,8 @@ export type Tool =
   | "highlighter"
   | "step"
   | "eraser"
-  | "magnify";
+  | "magnify"
+  | "spotlight";
 
 /** Where an object's drop shadow falls; `center` is a glow on all sides. */
 export type ShadowDir =
@@ -216,6 +219,18 @@ export interface MagnifyShape extends Base {
   strokeWidth: number;
 }
 
+/**
+ * An area left bright while the rest of the image is dimmed. Several spotlights share one
+ * dimmed layer, drawn where the first of them sits in the stacking order.
+ */
+export interface SpotlightShape extends Base {
+  type: "spotlight";
+  width: number;
+  height: number;
+  /** How dark the rest of the image gets, in percent. */
+  dim: number;
+}
+
 /** Simplify: a flat block standing in for detailed UI. */
 export interface BlockShape extends Base {
   type: "block";
@@ -252,6 +267,7 @@ export type Shape =
   | BlurShape
   | HighlightShape
   | MagnifyShape
+  | SpotlightShape
   | BlockShape
   | StampShape
   | ImageShape;
@@ -283,6 +299,8 @@ export interface DocState {
   crop: Area | null;
   /** `null` until a pixel tool changes the capture. */
   base: BaseImage | null;
+  /** Border, shadow and torn edges around the whole image. */
+  effects: Effects;
 }
 
 export const FONT_FAMILY =

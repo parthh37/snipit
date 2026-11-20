@@ -3,7 +3,7 @@
  * editable. It is a ZIP archive (rename it to `.zip` to look inside):
  *
  * ```
- * document.json   format + version, image size, crop, and the shapes
+ * document.json   format + version, image size, crop, effects, and the shapes
  * metadata.json   facts about the snip (when it was saved); grows with capture details later
  * original.png    the captured pixels, untouched
  * base.png        the capture after pixel edits (fill, eraser, cut out…), when there are any
@@ -17,6 +17,7 @@
  *
  * Nothing here touches the DOM, so it can be checked outside the app.
  */
+import type { Effects } from "./effects";
 import { contrastText, type Area, type ImageShape, type Shape } from "./types";
 
 export const SNIP_FORMAT = "snipit";
@@ -36,6 +37,8 @@ interface DocumentJson {
   /** The edited background, when pixel tools changed it. */
   base?: { file: string; width: number; height: number } | null;
   crop: Area | null;
+  /** Border, shadow and torn edges; missing in snips saved before effects existed. */
+  effects?: Effects;
   shapes: StoredShape[];
 }
 
@@ -52,6 +55,7 @@ export interface SnipProject {
   /** The pixel-edited background, if any. */
   base: { png: Uint8Array; width: number; height: number } | null;
   crop: Area | null;
+  effects: Effects;
   shapes: StoredShape[];
   /** PNG bytes for each image shape's `asset`. */
   assets: Map<string, Uint8Array>;
@@ -69,6 +73,7 @@ const SHAPE_TYPES = new Set<string>([
   "blur",
   "highlight",
   "magnify",
+  "spotlight",
   "block",
   "stamp",
   "image",
@@ -80,6 +85,7 @@ export async function encodeSnip(doc: {
   width: number;
   height: number;
   crop: Area | null;
+  effects?: Effects;
   shapes: Shape[];
   base?: { png: Uint8Array; width: number; height: number } | null;
   thumbnail?: Uint8Array;
@@ -103,6 +109,7 @@ export async function encodeSnip(doc: {
       ? { file: "base.png", width: doc.base.width, height: doc.base.height }
       : null,
     crop: doc.crop,
+    ...(doc.effects && { effects: doc.effects }),
     shapes,
   };
   const metadata: SnipMetadata = { savedAt: now.toISOString() };
@@ -159,6 +166,7 @@ export async function decodeSnip(bytes: Uint8Array): Promise<SnipProject> {
         ? { png: basePng, width: doc.base.width, height: doc.base.height }
         : null,
     crop: doc.crop ?? null,
+    effects: doc.effects ?? {},
     shapes,
     assets,
     metadata: metaText ? (JSON.parse(metaText) as SnipMetadata) : null,

@@ -20,6 +20,7 @@ import {
   type FillStyle,
   type HighlightStyle,
   type MagnifyStyle,
+  type SpotlightStyle,
   type PenStyle,
   type QuickStyle,
   type SelectionStyle,
@@ -85,6 +86,7 @@ export const TOOL_LABELS: Record<Tool, string> = {
   step: "Step",
   eraser: "Eraser",
   magnify: "Magnify",
+  spotlight: "Spotlight",
 };
 
 interface Props {
@@ -563,6 +565,23 @@ export function StylePreview({
           >
             {s.scale}%
           </text>
+        </>,
+      );
+    }
+    case "spotlight": {
+      const s = style as SpotlightStyle;
+      return box(
+        <>
+          <rect x="5" y="9" width="38" height="30" fill="#9aa4b2" />
+          <rect
+            x="5"
+            y="9"
+            width="38"
+            height="30"
+            fill="#000"
+            opacity={s.dim / 100}
+          />
+          <rect x="15" y="16" width="18" height="16" rx="3" fill="#eef2f7" />
         </>,
       );
     }
@@ -1389,6 +1408,26 @@ function Properties(props: Props) {
             </>,
           )}
         </>
+      );
+    }
+    case "spotlight": {
+      const s = styles.spotlight;
+      const set = (p: Partial<SpotlightStyle>) => onStyle("spotlight", p);
+      return pad(
+        <>
+          <SliderRow
+            label="Dim"
+            min={10}
+            max={90}
+            value={s.dim}
+            onChange={(dim) => set({ dim })}
+            suffix="%"
+          />
+          <p className="text-xs text-zinc-500">
+            Everything outside the spotlights is dimmed. Objects drawn after the
+            first spotlight stay bright.
+          </p>
+        </>,
       );
     }
     case "simplify": {

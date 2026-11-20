@@ -3,7 +3,10 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import logo from "../../../assets/icon.svg";
 import Editor, { type EditorDoc } from "../../editor/Editor";
+import type { Effects } from "../../editor/effects";
+import { processCapture } from "../../editor/render";
 import { decodeSnip } from "../../editor/snipFile";
+import Presets from "../../presets/Presets";
 import Gallery from "../../gallery/Gallery";
 import {
   api,
@@ -19,8 +22,12 @@ import {
   CAPTURE_SAVED_EVENT,
   EDITOR_OPEN_EVENT,
   ERROR_EVENT,
+  PROCESS_EVENT,
   type CaptureSaved,
+  type OpenEditor,
+  type ProcessCapture,
   annotateClipboard,
+  repeatLastCapture,
   startCapture,
 } from "../../lib/capture";
 import Settings, { Keys } from "../../settings/Settings";
@@ -86,7 +93,7 @@ export default function MainWindow() {
   const refreshGallery = useCallback(() => setGalleryKey((n) => n + 1), []);
 
   const openSnip = useCallback(
-    async (path: string) => {
+    async (path: string, effects?: Effects) => {
       try {
         const [png, projectBytes] = await Promise.all([
           api.readSnip(path),
@@ -101,7 +108,7 @@ export default function MainWindow() {
             notify(`Couldn't reopen the annotations: ${errorMessage(e)}`);
           }
         }
-        setDoc({ path, png, project });
+        setDoc({ path, png, project, effects });
       } catch (e) {
         notify(errorMessage(e));
       }
@@ -121,14 +128,27 @@ export default function MainWindow() {
 
   useEffect(() => {
     const subscriptions = [
-      listen<{ path: string }>(
+      listen<OpenEditor>(
         EDITOR_OPEN_EVENT,
-        (e) => void openSnip(e.payload.path),
+        (e) => void openSnip(e.payload.path, e.payload.effects),
       ),
+      listen<ProcessCapture>(PROCESS_EVENT, (e) => {
+        const { path, effects, copy } = e.payload;
+        processCapture(path, effects, copy)
+          .then(() => {
+            refreshGallery();
+            notify(
+              copy
+                ? "Copied with effects and saved to the gallery"
+                : "Saved to the gallery with effects",
+            );
+          })
+          .catch((err) => notify(errorMessage(err)));
+      }),
       listen<CaptureSaved>(CAPTURE_SAVED_EVENT, (e) => {
         refreshGallery();
         if (e.payload.copied) {
-          notify("Copied to clipboard and saved to Pictures\\Snipit");
+          notify("Copied to clipboard and saved to the gallery");
         }
       }),
       listen<string>(ERROR_EVENT, (e) => notify(e.payload)),
@@ -232,9 +252,39 @@ export default function MainWindow() {
                   </div>
                 )}
 
-                <h2 className="mb-4 text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
-                  New capture
-                </h2>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
+                    New capture
+                    {!!settings?.settings.captureDelay && (
+                      <span className="ml-2 font-normal normal-case">
+                        · waits {settings.settings.captureDelay} s first
+                      </span>
+                    )}
+                  </h2>
+                  {settings?.settings.lastCapture && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        repeatLastCapture().catch((e) =>
+                          notify(errorMessage(e)),
+                        )
+                      }
+                      title="Capture the same area again"
+                      className="flex items-center gap-2 text-sm text-brand-600 hover:underline dark:text-brand-500"
+                    >
+                      Repeat last capture
+                      {settings.settings.shortcuts.repeatLastCapture && (
+                        <span className="text-zinc-500 no-underline">
+                          <Keys
+                            accelerator={
+                              settings.settings.shortcuts.repeatLastCapture
+                            }
+                          />
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {captureModes.map((mode) => {
                     const accel = settings?.settings.shortcuts[mode.shortcut];
@@ -260,6 +310,14 @@ export default function MainWindow() {
                     );
                   })}
                 </div>
+
+                {settings && (
+                  <Presets
+                    view={settings}
+                    onChange={setSettings}
+                    notify={notify}
+                  />
+                )}
 
                 <div className="mt-8 mb-4 flex items-center justify-between">
                   <h2 className="text-sm font-medium text-zinc-500 uppercase dark:text-zinc-400">
@@ -287,6 +345,7 @@ export default function MainWindow() {
                 refreshKey={galleryKey}
                 onOpen={(snip) => void openSnip(snip.path)}
                 notify={notify}
+                folder={settings?.galleryDir}
               />
             )}
 

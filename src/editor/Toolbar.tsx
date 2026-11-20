@@ -41,6 +41,7 @@ export const ALL_TOOLS: Tool[] = [
   "step",
   "eraser",
   "magnify",
+  "spotlight",
 ];
 
 export const DEFAULT_BAR: Tool[] = [

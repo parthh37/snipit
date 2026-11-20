@@ -111,6 +111,11 @@ export interface MagnifyStyle {
   strokeWidth: number;
 }
 
+export interface SpotlightStyle {
+  /** How dark the rest of the image gets, in percent. */
+  dim: number;
+}
+
 export interface SimplifyStyle {
   radius: number;
   opacity: number;
@@ -163,6 +168,7 @@ export interface Styles {
   highlighter: HighlightStyle;
   blur: BlurStyle;
   magnify: MagnifyStyle;
+  spotlight: SpotlightStyle;
   simplify: SimplifyStyle;
   stamp: StampStyle;
   fill: FillStyle;
@@ -266,6 +272,7 @@ export const DEFAULT_STYLES: Styles = {
   highlighter: { color: "#ffe100", opacity: 0.5 },
   blur: { mode: "blur", ellipse: false, intensity: 25, color: "#111111" },
   magnify: { lens: "oval", scale: 200, outline: "#4b5563", strokeWidth: 3 },
+  spotlight: { dim: 55 },
   simplify: { radius: 4, opacity: 1, color: null },
   stamp: { glyph: "✅", opacity: 1, shadow: null },
   fill: { color: "#e5191c", tolerance: 15, opacity: 1 },
@@ -553,6 +560,8 @@ export function quickStyles(tool: StyledTool, theme: Theme): QuickStyle[] {
         { lens: "rounded", scale: 300, outline: theme.colors[2] },
         { lens: "oval", scale: 400, outline: "#4b5563" },
       ] as QuickStyle[];
+    case "spotlight":
+      return [30, 45, 60, 75].map((dim) => ({ dim }));
     case "simplify":
       return [
         { radius: 0, color: null },
@@ -631,6 +640,7 @@ export const QUICK_STYLE_TOOLS = new Set<Tool>([
   "highlighter",
   "blur",
   "magnify",
+  "spotlight",
   "simplify",
   "cutout",
 ]);
