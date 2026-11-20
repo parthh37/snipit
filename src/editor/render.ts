@@ -1,21 +1,14 @@
+/** Turning editor canvases into files, shared by the editor and by presets that skip it. */
 import { api } from "../lib/api";
 import { applyEffects, type Effects } from "./effects";
+import { canvasPngBuffer, loadImage } from "./pixelOps";
 import { encodeSnip } from "./snipFile";
 
 /** Longest side of the preview stored in a `.snip`. */
 const THUMBNAIL_SIZE = 400;
 
-export function canvasPng(canvas: HTMLCanvasElement) {
-  return new Promise<Uint8Array>((resolve, reject) =>
-    canvas.toBlob(
-      (b) =>
-        b
-          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)), reject)
-          : reject(new Error("Export failed")),
-      "image/png",
-    ),
-  );
-}
+export const canvasPng = (canvas: HTMLCanvasElement) =>
+  canvasPngBuffer(canvas).then((b) => new Uint8Array(b));
 
 export function thumbnailOf(canvas: HTMLCanvasElement) {
   const scale = Math.min(
@@ -38,24 +31,6 @@ export const bufferOf = (bytes: Uint8Array): ArrayBuffer =>
   bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
     ? (bytes.buffer as ArrayBuffer)
     : (bytes.slice().buffer as ArrayBuffer);
-
-export function loadImage(png: ArrayBuffer) {
-  const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    // A loaded image keeps its pixels, so the blob can go; otherwise every opened snip and
-    // paste would stay in memory for as long as Snipit sits in the tray.
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not load the image"));
-    };
-    image.src = url;
-  });
-}
 
 /**
  * Adds a preset's effects to a new capture without opening the editor: saves the result as an

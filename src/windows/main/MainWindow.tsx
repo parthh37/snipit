@@ -201,6 +201,7 @@ export default function MainWindow() {
           onClose={() => setDoc(null)}
           onSaved={refreshGallery}
           notify={notify}
+          onOpenSnip={(path) => void openSnip(path)}
         />
       ) : (
         <>

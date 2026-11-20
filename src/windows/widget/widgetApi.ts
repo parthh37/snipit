@@ -26,5 +26,8 @@ export const widgetDragStart = () => invoke<void>("widget_drag_start");
 export const widgetDragMove = () => invoke<void>("widget_drag_move");
 export const widgetDragEnd = () => invoke<void>("widget_drag_end");
 
+/** Whether the real cursor is over the widget window (`true` when Rust can't tell). */
+export const widgetCursorInside = () => invoke<boolean>("widget_cursor_inside");
+
 export const openSettings = () => invoke<void>("open_settings");
 export const quitApp = () => invoke<void>("quit_app");

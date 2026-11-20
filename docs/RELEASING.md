@@ -7,19 +7,23 @@ Installed copies of Snipit find new releases through the in-app updater.
 
 Either:
 
-- **From GitHub** — Actions → **Release** → **Run workflow** on `main`, enter the version
-  (e.g. `0.2.0`). The workflow bumps the version, commits `Release v0.2.0` to `main`, tags
-  it and publishes the release.
+- **From GitHub** — Actions → **Release** → **Run workflow** on `main`. The version box
+  defaults to `patch`, which releases the next patch version (1.1.0 → 1.1.1). Enter `minor`
+  (→ 1.2.0), `major` (→ 2.0.0) or an exact version (`0.2.0`, `1.2.0-beta.1`) instead. The
+  workflow bumps the version, commits `Release v1.1.1` to `main`, tags it and publishes the
+  release.
 - **From your machine** — on an up-to-date `main`:
 
   ```bash
-  npm run release -- 0.2.0
+  npm run release
   git push --follow-tags
   ```
 
-  `npm run release` updates the version in `package.json`, `package-lock.json`,
-  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock`, commits
-  and creates an annotated `v0.2.0` tag. Pushing the tag starts the workflow.
+  `npm run release` bumps to the next patch version; pass `-- minor`, `-- major` or
+  `-- 0.2.0` for something else. It updates the version in `package.json`,
+  `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and
+  `src-tauri/Cargo.lock`, commits and creates an annotated tag. Pushing the tag starts the
+  workflow.
 
 The workflow then:
 
@@ -35,10 +39,11 @@ The workflow then:
    downloads the newest installer (the README links to it).
 5. Publishes the release. Only now do installed apps see it.
 
-If the `TAURI_SIGNING_PRIVATE_KEY` secret is missing, the release still goes out with both
-installers but without `latest.json`, and the run shows a warning: people can install it,
-but installed copies aren't offered it as an update. Add the key (below) before relying on
-auto-update.
+If the `TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret is
+missing, the run fails before it bumps, tags or publishes anything. A release without
+`latest.json` would make every installed copy's update check fail with "Could not fetch a
+valid release JSON from the remote" (v0.2.0 through v1.1.0 shipped that way). Add the key
+(below) first.
 
 ## Which installer
 

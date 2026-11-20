@@ -74,11 +74,13 @@ Accessibility → Keyboard → Use the Print screen key to open screen capture**
 screenshot tool (Snagit, ShareX, OneDrive…) has claimed it. Snipit shows a notice in its
 window when this happens, and you can pick another key in Settings.
 
-The editor has arrow, rectangle, ellipse, line, pen, highlighter, text, text bubble, step
-number, pixelate, blur, magnify and spotlight tools (single-letter shortcuts shown in
-tooltips), crop, undo/redo, and pastes images from the clipboard. Its **Effects** tab frames
-the whole image with a border, a drop shadow or torn edges, and they stay editable in the
-`.snip`. **Copy** puts the annotated image on the clipboard and saves it.
+The editor follows Snagit's: arrow, text, callout, shape, stamp, fill, move, selection, blur,
+simplify, magic wand, crop, cut out, pen, line, highlighter, step, eraser and magnify tools,
+plus a spotlight that dims everything around it (the **More** menu holds the ones not on the
+bar; single-letter shortcuts are in the tooltips), with Quick Styles and favourites, undo/redo,
+and pasting images from the clipboard. The **Effects** button frames the whole image with a
+border, a drop shadow or torn edges, and they stay editable in the `.snip`. **Copy All** puts
+the annotated image on the clipboard and saves it.
 
 ## Tech stack
 

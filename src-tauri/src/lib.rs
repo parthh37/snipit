@@ -135,6 +135,7 @@ pub fn run() {
             widget::widget_drag_start,
             widget::widget_drag_move,
             widget::widget_drag_end,
+            widget::widget_cursor_inside,
             widget::open_main_window,
         ])
         .on_window_event(|window, event| {

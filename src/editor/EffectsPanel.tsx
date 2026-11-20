@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { TornIcon } from "./icons";
-import { Panel, Row, Section, Segment, Segmented } from "./StylePanel";
 import {
   SIDES,
   hasEffects,
@@ -30,8 +29,8 @@ const SIDE_NAMES: Record<Side, string> = {
 };
 
 /**
- * Controls for whole-image effects. Used by the editor's side panel and by the capture preset
- * dialog, which is why it only talks in {@link Effects}.
+ * Controls for whole-image effects. Used by the editor's Effects panel and by the capture
+ * preset dialog, which is why it only talks in {@link Effects}.
  */
 export function EffectsControls({
   effects,
@@ -141,79 +140,94 @@ export function EffectsControls({
   );
 }
 
-/** The editor's Effects tab. */
+/**
+ * The editor's Effects panel, in place of Quick Styles and Tool Properties (Snagit's Effects
+ * button next to Properties).
+ */
 export default function EffectsPanel({
   effects,
-  header,
   onChange,
 }: {
   effects: Effects;
-  header: ReactNode;
   onChange: (next: Effects) => void;
 }) {
   return (
-    <Panel>
-      {header}
-      <Section
-        title="Image effects"
-        action={
-          hasEffects(effects) && (
-            <button
-              type="button"
-              onClick={() => onChange({})}
-              className="rounded px-1.5 text-[11px] text-zinc-500 hover:bg-zinc-200/70 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-100"
-            >
-              Remove all
-            </button>
-          )
-        }
-      >
+    <aside
+      className="flex w-[262px] shrink-0 flex-col border-l border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+      // Buttons here never keep the focus, so Space (pan) and the tool keys keep working.
+      onMouseDown={(e) => {
+        if ((e.target as HTMLElement).closest("button")) e.preventDefault();
+      }}
+    >
+      <div className="flex h-9 shrink-0 items-center justify-center border-b border-zinc-200 bg-zinc-100 text-sm font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+        Effects
+      </div>
+      <div className="flex flex-col gap-2.5 border-b border-zinc-200 px-3 py-3 dark:border-zinc-700">
         <EffectsControls effects={effects} onChange={onChange} />
-      </Section>
-      <p className="px-3 py-3 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-        Effects frame the whole image and go into every copy and save. They stay
-        editable: reopen the snip to change or remove them.
-      </p>
-    </Panel>
+      </div>
+      <div className="flex items-start gap-2 px-3 py-3">
+        <p className="flex-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+          Effects frame the whole image and go into every copy and save. They
+          stay editable: reopen the snip to change or remove them.
+        </p>
+      </div>
+      {hasEffects(effects) && (
+        <div className="mt-auto border-t border-zinc-200 p-3 dark:border-zinc-700">
+          <button
+            type="button"
+            onClick={() => onChange({})}
+            className="flex h-9 w-full items-center justify-center rounded border border-zinc-300 bg-zinc-50 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            Remove all effects
+          </button>
+        </div>
+      )}
+    </aside>
   );
 }
 
-/** "Styles | Effects" switch at the top of the side panel. */
-export function PanelTabs({
-  tab,
-  onTab,
-  effectsOn,
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[64px_1fr] items-center gap-2">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Segmented({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex w-fit rounded-md border border-zinc-200 p-0.5 dark:border-zinc-700">
+      {children}
+    </div>
+  );
+}
+
+function Segment({
+  active,
+  title,
+  onClick,
+  children,
 }: {
-  tab: "styles" | "effects";
-  onTab: (tab: "styles" | "effects") => void;
-  /** Effects are in use, so the tab shows a dot. */
-  effectsOn: boolean;
+  active: boolean;
+  title: string;
+  onClick: () => void;
+  children: ReactNode;
 }) {
-  const item = (id: "styles" | "effects", label: string, dot = false) => (
+  return (
     <button
       type="button"
-      role="tab"
-      aria-selected={tab === id}
-      onClick={() => onTab(id)}
-      className={`relative flex-1 rounded-md py-1 text-xs font-medium transition ${
-        tab === id
-          ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
-          : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onClick}
+      className={`flex h-7 min-w-8 items-center justify-center rounded px-1.5 transition [&_svg]:size-4 ${
+        active
+          ? "bg-brand-500/15 text-brand-600 dark:text-brand-500"
+          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
       }`}
     >
-      {label}
-      {dot && (
-        <span className="absolute top-1.5 ml-1 inline-block size-1.5 rounded-full bg-brand-500" />
-      )}
+      {children}
     </button>
-  );
-  return (
-    <div
-      role="tablist"
-      className="m-2 mb-0 flex gap-1 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800"
-    >
-      {item("styles", "Styles")}
-      {item("effects", "Effects", effectsOn)}
-    </div>
   );
 }

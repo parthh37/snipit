@@ -6,6 +6,7 @@
  * document.json   format + version, image size, crop, effects, and the shapes
  * metadata.json   facts about the snip (when it was saved); grows with capture details later
  * original.png    the captured pixels, untouched
+ * base.png        the capture after pixel edits (fill, eraser, cut out…), when there are any
  * thumbnail.png   small flattened preview
  * assets/<id>.png images pasted onto the snip
  * ```
@@ -17,10 +18,11 @@
  * Nothing here touches the DOM, so it can be checked outside the app.
  */
 import type { Effects } from "./effects";
-import type { Area, ImageShape, Shape } from "./types";
+import { contrastText, type Area, type ImageShape, type Shape } from "./types";
 
 export const SNIP_FORMAT = "snipit";
-export const SNIP_VERSION = 1;
+/** 2: Snagit-style shapes and a pixel-edited base image. Version 1 files are migrated. */
+export const SNIP_VERSION = 2;
 
 /** A pasted image as stored: its pixels live in `asset`, not in the shape. */
 export type StoredImageShape = Omit<ImageShape, "image" | "png"> & {
@@ -32,6 +34,8 @@ interface DocumentJson {
   format: typeof SNIP_FORMAT;
   version: number;
   image: { file: string; width: number; height: number };
+  /** The edited background, when pixel tools changed it. */
+  base?: { file: string; width: number; height: number } | null;
   crop: Area | null;
   /** Border, shadow and torn edges; missing in snips saved before effects existed. */
   effects?: Effects;
@@ -48,6 +52,8 @@ export interface SnipProject {
   original: Uint8Array;
   width: number;
   height: number;
+  /** The pixel-edited background, if any. */
+  base: { png: Uint8Array; width: number; height: number } | null;
   crop: Area | null;
   effects: Effects;
   shapes: StoredShape[];
@@ -57,19 +63,19 @@ export interface SnipProject {
 }
 
 const SHAPE_TYPES = new Set<string>([
-  "rect",
-  "ellipse",
   "arrow",
   "line",
   "pen",
-  "highlighter",
+  "shape",
   "text",
   "callout",
   "step",
-  "pixelate",
   "blur",
+  "highlight",
   "magnify",
   "spotlight",
+  "block",
+  "stamp",
   "image",
 ]);
 
@@ -81,6 +87,7 @@ export async function encodeSnip(doc: {
   crop: Area | null;
   effects?: Effects;
   shapes: Shape[];
+  base?: { png: Uint8Array; width: number; height: number } | null;
   thumbnail?: Uint8Array;
   now?: Date;
 }): Promise<Uint8Array> {
@@ -98,6 +105,9 @@ export async function encodeSnip(doc: {
     format: SNIP_FORMAT,
     version: SNIP_VERSION,
     image: { file: "original.png", width: doc.width, height: doc.height },
+    base: doc.base
+      ? { file: "base.png", width: doc.base.width, height: doc.base.height }
+      : null,
     crop: doc.crop,
     ...(doc.effects && { effects: doc.effects }),
     shapes,
@@ -107,6 +117,7 @@ export async function encodeSnip(doc: {
     { name: "document.json", data: json(document), deflate: true },
     { name: "metadata.json", data: json(metadata), deflate: true },
     { name: "original.png", data: doc.original },
+    ...(doc.base ? [{ name: "base.png", data: doc.base.png }] : []),
     ...(doc.thumbnail ? [{ name: "thumbnail.png", data: doc.thumbnail }] : []),
     ...assets,
   ];
@@ -134,27 +145,201 @@ export async function decodeSnip(bytes: Uint8Array): Promise<SnipProject> {
   if (!original) throw new Error("The snip's original image is missing");
 
   const assets = new Map<string, Uint8Array>();
+  const raw = Array.isArray(doc.shapes) ? doc.shapes : [];
+  const upgraded = doc.version < 2 ? raw.map(migrateV1) : raw;
   // Shapes a newer minor version might add are skipped rather than failing the whole file.
-  const shapes = (Array.isArray(doc.shapes) ? doc.shapes : []).filter(
-    (shape) => {
-      if (!shape || !SHAPE_TYPES.has(shape.type)) return false;
-      if (shape.type !== "image") return true;
-      const data = files.get(shape.asset);
-      if (data) assets.set(shape.asset, data);
-      return !!data;
-    },
-  );
+  const shapes = upgraded.filter((shape) => {
+    if (!shape || !SHAPE_TYPES.has(shape.type)) return false;
+    if (shape.type !== "image") return true;
+    const data = files.get(shape.asset);
+    if (data) assets.set(shape.asset, data);
+    return !!data;
+  });
   const metaText = text("metadata.json");
+  const basePng = doc.base ? files.get(doc.base.file) : undefined;
   return {
     original,
     width: doc.image!.width,
     height: doc.image!.height,
+    base:
+      doc.base && basePng
+        ? { png: basePng, width: doc.base.width, height: doc.base.height }
+        : null,
     crop: doc.crop ?? null,
     effects: doc.effects ?? {},
     shapes,
     assets,
     metadata: metaText ? (JSON.parse(metaText) as SnipMetadata) : null,
   };
+}
+
+type Loose = Record<string, unknown> & { type: string };
+
+const V1_DASH: Record<string, string> = {
+  solid: "solid",
+  dashed: "dash",
+  dotted: "dot",
+};
+
+/** Folds a v1 transformer scale and rotation into a flat point list. */
+const scaled = (s: Loose) => {
+  const sx = (s.scaleX as number) ?? 1;
+  const sy = (s.scaleY as number) ?? 1;
+  const a = (((s.rotation as number) ?? 0) * Math.PI) / 180;
+  const pts = (s.points as number[]) ?? [];
+  const out: number[] = [];
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    const x = pts[i] * sx;
+    const y = pts[i + 1] * sy;
+    out.push(
+      x * Math.cos(a) - y * Math.sin(a),
+      x * Math.sin(a) + y * Math.cos(a),
+    );
+  }
+  return out;
+};
+
+/** Turns a version 1 shape into its version 2 equivalent. */
+export function migrateV1(input: StoredShape): StoredShape {
+  const s = input as unknown as Loose;
+  const base = {
+    id: s.id,
+    x: s.x,
+    y: s.y,
+    rotation: s.rotation,
+    opacity: (s.opacity as number) ?? 1,
+    shadow: s.shadow ? "br" : null,
+  };
+  const dash = V1_DASH[(s.dash as string) ?? "solid"] ?? "solid";
+  let out: Record<string, unknown>;
+  switch (s.type) {
+    case "rect":
+    case "ellipse":
+      out = {
+        ...base,
+        type: "shape",
+        kind: s.type === "ellipse" ? "ellipse" : s.rounded ? "rounded" : "rect",
+        width: s.width,
+        height: s.height,
+        fill: s.filled ? s.stroke : null,
+        outline: s.filled ? null : s.stroke,
+        strokeWidth: s.strokeWidth,
+        dash,
+      };
+      break;
+    case "arrow":
+    case "line":
+      out = {
+        ...base,
+        rotation: 0,
+        type: s.type,
+        points: scaled(s),
+        control: null,
+        stroke: s.stroke,
+        strokeWidth: s.strokeWidth,
+        dash,
+        startCap: s.type === "line" ? "round" : s.bothEnds ? "arrow" : "none",
+        endCap: s.type === "line" ? "round" : "arrow",
+        startSize: 2,
+        endSize: 2,
+      };
+      break;
+    case "pen":
+    case "highlighter":
+      out = {
+        ...base,
+        rotation: 0,
+        type: "pen",
+        points: scaled(s),
+        stroke: s.stroke,
+        strokeWidth: s.strokeWidth,
+        nib: "round",
+        smooth: true,
+        ...(s.type === "highlighter" && { marker: true }),
+      };
+      break;
+    case "text": {
+      const size = ((s.fontSize as number) ?? 22) * ((s.scaleY as number) ?? 1);
+      const lines = String(s.text ?? "").split("\n");
+      const longest = Math.max(1, ...lines.map((l) => l.length));
+      out = {
+        ...base,
+        shadow: "br",
+        type: "text",
+        text: s.text,
+        width: longest * size * 0.62 + 8,
+        height: lines.length * size * 1.2 + 8,
+        font: "Segoe UI",
+        fontSize: size,
+        textColor: s.fill,
+        bold: true,
+        align: "left",
+        valign: "top",
+        padding: 4,
+        outline: null,
+        outlineWidth: 0,
+      };
+      break;
+    }
+    case "callout": {
+      const size = (s.fontSize as number) ?? 18;
+      const lines = String(s.text ?? "").split("\n").length;
+      out = {
+        ...base,
+        shadow: "br",
+        type: "callout",
+        body: "speechRound",
+        text: s.text,
+        width: s.width,
+        height: lines * size * 1.2 + 24,
+        font: "Segoe UI",
+        fontSize: size,
+        textColor: contrastText(s.fill as string),
+        align: "left",
+        valign: "top",
+        padding: 12,
+        fill: s.fill,
+        outline: null,
+        strokeWidth: 2,
+        dash: "solid",
+        tail: { x: s.tailX, y: s.tailY },
+        arrowColor: s.fill,
+        arrowWidth: 6,
+        arrowDash: "solid",
+        arrowCap: "arrow",
+      };
+      break;
+    }
+    case "step":
+      out = {
+        ...base,
+        shadow: "br",
+        type: "step",
+        n: s.n,
+        sequence: "123",
+        style: "circle",
+        size: ((s.radius as number) ?? 16) * 2,
+        fill: s.fill,
+        textColor: contrastText(s.fill as string),
+      };
+      break;
+    case "pixelate":
+    case "blur":
+      out = {
+        ...base,
+        type: "blur",
+        mode: s.type === "pixelate" ? "pixelate" : "blur",
+        ellipse: false,
+        width: s.width,
+        height: s.height,
+        intensity: Math.min(100, Math.max(1, ((s.amount as number) ?? 10) * 2)),
+        color: "#111111",
+      };
+      break;
+    default:
+      return input;
+  }
+  return out as unknown as StoredShape;
 }
 
 const json = (value: unknown) =>

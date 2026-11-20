@@ -421,6 +421,27 @@ pub fn widget_drag_move(app: AppHandle) {
     place(&app, &window, Some(monitor));
 }
 
+/// Whether `point` lies inside the rectangle at `position` of `size` (all physical pixels).
+fn rect_contains(position: PhysicalPosition<i32>, size: PhysicalSize<u32>, x: f64, y: f64) -> bool {
+    let (left, top) = (f64::from(position.x), f64::from(position.y));
+    x >= left && x < left + f64::from(size.width) && y >= top && y < top + f64::from(size.height)
+}
+
+/// Whether the cursor is over the widget. The page polls this while the panel is open: a
+/// window that never takes focus doesn't always hear the pointer leave, e.g. when a drag
+/// snaps the panel to a side edge away from the cursor, so it would otherwise stay open.
+/// Says yes when it can't tell, so the panel never folds up under the cursor.
+#[tauri::command]
+pub fn widget_cursor_inside(app: AppHandle) -> bool {
+    let (Some(window), Ok(cursor)) = (window(&app), app.cursor_position()) else {
+        return true;
+    };
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return true;
+    };
+    rect_contains(position, size, cursor.x, cursor.y)
+}
+
 /// Saves where the widget was dropped.
 #[tauri::command]
 pub fn widget_drag_end(app: AppHandle) -> Result<(), String> {
@@ -574,6 +595,21 @@ mod tests {
         // Near the top-left corner it stays wherever it already is.
         assert_eq!(nearest_edge(FHD, 30, 40, Edge::Left, bias), Edge::Left);
         assert_eq!(nearest_edge(FHD, 40, 30, Edge::Top, bias), Edge::Top);
+    }
+
+    #[test]
+    fn a_side_snap_can_leave_the_cursor_outside_the_panel() {
+        // Dragged from the top towards the right side, the open panel snaps flush right once
+        // that edge is nearest, while the cursor is still well left of it.
+        let (cx, cy) = (1650, 400);
+        let edge = nearest_edge(FHD, cx, cy, Edge::Top, 48);
+        assert_eq!(edge, Edge::Right);
+        let (pos, size, _) = layout_on(FHD, 1.0, edge, WidgetLayout::Open, Some(cy));
+        assert!(!rect_contains(pos, size, f64::from(cx), f64::from(cy)));
+        assert!(rect_contains(pos, size, 1900.0, f64::from(cy)));
+        // The far edges are outside: the rectangle is half-open.
+        let right = pos.x + size.width as i32;
+        assert!(!rect_contains(pos, size, f64::from(right), f64::from(cy)));
     }
 
     #[test]
