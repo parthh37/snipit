@@ -64,8 +64,8 @@ impl Cursor {
                 let px = image.get_pixel_mut(x as u32, y as u32);
                 match self.pixels[(cy * self.width + cx) as usize] {
                     Pixel::Invert => {
-                        for c in 0..3 {
-                            px.0[c] = 255 - px.0[c];
+                        for channel in &mut px.0[..3] {
+                            *channel = 255 - *channel;
                         }
                     }
                     Pixel::Color([r, g, b, a]) if a > 0 => {
