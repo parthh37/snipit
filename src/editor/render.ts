@@ -60,5 +60,6 @@ export async function processCapture(
     effects,
     thumbnail: await canvasPng(thumbnailOf(canvas)),
   });
-  await api.saveSnip(png, path, project);
+  // The bare capture was never shown, so the result replaces it rather than sitting beside it.
+  await api.saveSnip(png, path, project, true);
 }

@@ -110,14 +110,23 @@ export const api = {
   /**
    * Saves the flattened PNG as an edit of `path` (or as a new snip when it is null), plus the
    * `.snip` project beside it. Returns the PNG's path.
+   *
+   * With `replace`, a capture that has no project yet is overwritten instead of getting an
+   * `_edited` copy (a preset adding its effects); the project keeps its original pixels.
    */
-  saveSnip: (png: Uint8Array, path: string | null, project?: Uint8Array) => {
+  saveSnip: (
+    png: Uint8Array,
+    path: string | null,
+    project?: Uint8Array,
+    replace = false,
+  ) => {
     // One request carries both files: the PNG, then the project.
     const body = project ? concat(png, project) : png;
     return invoke<string>("save_snip", body, {
       headers: {
         ...(path ? { "x-snip-path": encodeURIComponent(path) } : {}),
         ...(project ? { "x-png-length": String(png.length) } : {}),
+        ...(replace ? { "x-snip-replace": "1" } : {}),
       },
     });
   },
